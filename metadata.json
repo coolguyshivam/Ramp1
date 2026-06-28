@@ -1,0 +1,6 @@
+{
+  "name": "Ramp Designer",
+  "description": "Calculate slope gradients, drainage profiles, and material volume requirements for residential basement parking ramps.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
