@@ -31,8 +31,11 @@ jobs:
     - name: Generate Debug Keystore
       run: keytool -genkey -v -keystore debug.keystore -storepass android -alias androiddebugkey -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Debug,O=Android,C=US"
 
+    - name: Generate Release Keystore
+      run: keytool -genkey -v -keystore my-upload-key.jks -storepass android -alias upload -keypass android -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=Android Release,O=Android,C=US"
+
     - name: List files to verify
-      run: ls -la | grep gradle
+      run: ls -la | grep keystore
 
     - name: Clean and Build with Gradle
       run: ./gradlew clean build -x test --stacktrace
