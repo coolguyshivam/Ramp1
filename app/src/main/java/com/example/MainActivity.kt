@@ -72,6 +72,12 @@ import androidx.compose.ui.unit.sp
 import kotlin.math.cos
 import kotlin.math.sin
 import com.example.ui.theme.MyApplicationTheme
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.pointerInput
+import android.graphics.Paint
+import android.graphics.Typeface
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.graphics.nativeCanvas
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -156,6 +162,7 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
     // Expandable settings states
     var showSlopeSettings by remember { mutableStateOf(true) }
     var showMaterialSettings by remember { mutableStateOf(false) }
+    var activeDragHandle by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
         modifier = modifier
@@ -454,6 +461,110 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             .height(240.dp)
                             .background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp))
                             .border(1.dp, Color.LightGray, RoundedCornerShape(8.dp))
+                            .pointerInput(config, report, carPositionX) {
+                                detectDragGestures(
+                                    onDragStart = { offset ->
+                                        val width = size.width.toFloat()
+                                        val height = size.height.toFloat()
+                                        
+                                        val xMin = -6f
+                                        val xMax = report.totalHorizontalLength + config.basementOpenSpaceLength + 8f
+                                        val yMin = report.basementFloorLevel - 1.5f
+                                        val yMax = maxOf(config.basementTopLevel, report.crestHeight) + 1.2f
+
+                                        val totalXRange = xMax - xMin
+                                        val totalYRange = yMax - yMin
+
+                                        val paddingLeftRight = 40f
+                                        val paddingTopBottom = 40f
+
+                                        val scaleX = (width - 2f * paddingLeftRight) / totalXRange
+                                        val scaleY = (height - 2f * paddingTopBottom) / totalYRange
+                                        val scale = minOf(scaleX, scaleY)
+
+                                        val drawWidth = totalXRange * scale
+                                        val drawHeight = totalYRange * scale
+                                        val offsetX = paddingLeftRight + (width - 2f * paddingLeftRight - drawWidth) / 2f
+                                        val offsetY = paddingTopBottom + (height - 2f * paddingTopBottom - drawHeight) / 2f
+                                        
+                                        fun toCX(x: Float): Float = offsetX + (x - xMin) * scale
+                                        fun toCY(y: Float): Float = offsetY + (yMax - y) * scale
+                                        
+                                        // Handle distances
+                                        // 1. Car Position
+                                        val carCx = toCX(carPositionX)
+                                        val distToCar = Math.hypot((offset.x - carCx).toDouble(), (offset.y - toCY(0.5f)).toDouble())
+                                        
+                                        // 2. Open Space Setback Handle
+                                        val entranceX = report.totalHorizontalLength + config.basementOpenSpaceLength
+                                        val setbackCx = toCX(entranceX)
+                                        val setbackCy = toCY(RampCalculator.getRampHeight(entranceX, config))
+                                        val distToSetback = Math.hypot((offset.x - setbackCx).toDouble(), (offset.y - setbackCy).toDouble())
+                                        
+                                        // 3. Ceiling Height Handle
+                                        val ceilingCx = toCX(entranceX)
+                                        val ceilingCy = toCY(config.basementTopLevel - 0.6f)
+                                        val distToCeiling = Math.hypot((offset.x - ceilingCx).toDouble(), (offset.y - ceilingCy).toDouble())
+                                        
+                                        // 4. Crest Height / Incline Handle
+                                        val crestX = config.gutterWidth + config.upwardRampLength
+                                        val crestCx = toCX(crestX)
+                                        val crestCy = toCY(report.crestHeight)
+                                        val distToCrest = Math.hypot((offset.x - crestCx).toDouble(), (offset.y - crestCy).toDouble())
+                                        
+                                        activeDragHandle = when {
+                                            distToCeiling < 50f -> "ceiling"
+                                            distToSetback < 50f -> "setback"
+                                            distToCrest < 50f -> "crest"
+                                            distToCar < 80f -> "car"
+                                            else -> "car" // Tap-drag anywhere else defaults to rolling the car
+                                        }
+                                    },
+                                    onDrag = { change, dragAmount ->
+                                        val width = size.width.toFloat()
+                                        val height = size.height.toFloat()
+                                        
+                                        val xMin = -6f
+                                        val xMax = report.totalHorizontalLength + config.basementOpenSpaceLength + 8f
+                                        val yMin = report.basementFloorLevel - 1.5f
+                                        val yMax = maxOf(config.basementTopLevel, report.crestHeight) + 1.2f
+
+                                        val totalXRange = xMax - xMin
+                                        val totalYRange = yMax - yMin
+
+                                        val paddingLeftRight = 40f
+                                        val paddingTopBottom = 40f
+
+                                        val scaleX = (width - 2f * paddingLeftRight) / totalXRange
+                                        val scaleY = (height - 2f * paddingTopBottom) / totalYRange
+                                        val scale = minOf(scaleX, scaleY)
+                                        
+                                        val dragXFt = dragAmount.x / scale
+                                        val dragYFt = -dragAmount.y / scale // Invert vertical direction
+                                        
+                                        when (activeDragHandle) {
+                                            "car" -> {
+                                                carPositionX = (carPositionX + dragXFt).coerceIn(-6f, maxScrollDist)
+                                            }
+                                            "setback" -> {
+                                                val newSetback = (config.basementOpenSpaceLength + dragXFt).coerceIn(0.0f, 25.0f)
+                                                config = config.copy(basementOpenSpaceLength = newSetback)
+                                            }
+                                            "ceiling" -> {
+                                                val newCeiling = (config.basementTopLevel + dragYFt).coerceIn(3.0f, 10.0f)
+                                                config = config.copy(basementTopLevel = newCeiling)
+                                            }
+                                            "crest" -> {
+                                                val newUpwardLength = (config.upwardRampLength + dragXFt).coerceIn(1.0f, 15.0f)
+                                                config = config.copy(upwardRampLength = newUpwardLength)
+                                            }
+                                        }
+                                    },
+                                    onDragEnd = {
+                                        activeDragHandle = null
+                                    }
+                                )
+                            }
                     ) {
                         Canvas(modifier = Modifier.fillMaxSize()) {
                             val width = size.width
@@ -569,13 +680,40 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                 topLeft = Offset(ceilStartX, ceilYTop),
                                 size = Size(ceilEndX - ceilStartX, ceilYBottom - ceilYTop)
                             )
+
+                            // Facade Wall going upwards representing the building exterior
+                            drawRect(
+                                color = Color(0xFF1E293B),
+                                topLeft = Offset(ceilStartX, toCY(yMax)),
+                                size = Size(14f * scale, ceilYTop - toCY(yMax))
+                            )
+
+                            // Hazard yellow/black warning stripes on the ceiling entrance lip
+                            val lipHeight = ceilYBottom - ceilYTop
+                            drawRect(
+                                color = Color(0xFFFBBF24), // Warning yellow
+                                topLeft = Offset(ceilStartX - 6f, ceilYTop),
+                                size = Size(6f, lipHeight)
+                            )
+                            for (stripeY in 0..6) {
+                                if (stripeY % 2 == 0) {
+                                    val startStripeY = ceilYTop + (stripeY / 6f) * lipHeight
+                                    val endStripeY = ceilYTop + ((stripeY + 1) / 6f) * lipHeight
+                                    drawLine(
+                                        color = Color.Black,
+                                        start = Offset(ceilStartX - 6f, startStripeY),
+                                        end = Offset(ceilStartX, endStripeY),
+                                        strokeWidth = 2f
+                                    )
+                                }
+                            }
                             
-                            // Basement opening vertical wall guide
+                            // Basement opening vertical wall guide (dashed line)
                             drawLine(
                                 color = Color(0xFF0F172A),
                                 start = Offset(ceilStartX, ceilYBottom),
                                 end = Offset(ceilStartX, toCY(report.basementFloorLevel)),
-                                strokeWidth = 2f,
+                                strokeWidth = 3f,
                                 pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(8f, 8f), 0f)
                             )
 
@@ -588,6 +726,128 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                 radius = 6f,
                                 center = Offset(toCX(crestX), toCY(crestY))
                             )
+
+                            // --- VISUALLY RICH MARKINGS FOR BASEMENT ENTRY AND HEIGHTS ---
+                            // A. Vertical Opening Clear Height dimension line
+                            val floorYAtEntrance = RampCalculator.getRampHeight(entranceX, config)
+                            val entryClearance = config.basementTopLevel - floorYAtEntrance
+                            val clearanceLineX = ceilStartX + 12f // Offset slightly inside the garage
+                            
+                            drawLine(
+                                color = Color(0xFF10B981), // Emerald indicator line
+                                start = Offset(clearanceLineX, toCY(floorYAtEntrance)),
+                                end = Offset(clearanceLineX, ceilYBottom),
+                                strokeWidth = 2.5f
+                            )
+                            drawCircle(color = Color(0xFF10B981), radius = 4f, center = Offset(clearanceLineX, toCY(floorYAtEntrance)))
+                            drawCircle(color = Color(0xFF10B981), radius = 4f, center = Offset(clearanceLineX, ceilYBottom))
+
+                            // B. Horizontal Open Setback dimension line
+                            val crestXCoord = report.totalHorizontalLength
+                            val crestCXCoord = toCX(crestXCoord)
+                            val setbackLineY = toCY(maxOf(0f, report.crestHeight) + 0.3f)
+                            if (config.basementOpenSpaceLength > 0.1f) {
+                                drawLine(
+                                    color = Color(0xFF3B82F6), // Blue dimension line
+                                    start = Offset(crestCXCoord, setbackLineY),
+                                    end = Offset(ceilStartX, setbackLineY),
+                                    strokeWidth = 2f
+                                )
+                                drawCircle(color = Color(0xFF3B82F6), radius = 4f, center = Offset(crestCXCoord, setbackLineY))
+                                drawCircle(color = Color(0xFF3B82F6), radius = 4f, center = Offset(ceilStartX, setbackLineY))
+                            }
+
+                            // C. Draw annotations directly onto Canvas
+                            val paint = Paint().apply {
+                                color = textLabelColor.toArgb()
+                                textSize = 9.sp.toPx()
+                                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+                                textAlign = Paint.Align.CENTER
+                            }
+
+                            // Horizontal Setback text
+                            if (config.basementOpenSpaceLength > 0.1f) {
+                                paint.color = Color(0xFF1D4ED8).toArgb() // Blue text
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    "Setback: ${String.format("%.1f", config.basementOpenSpaceLength)} ft",
+                                    (crestCXCoord + ceilStartX) / 2f,
+                                    setbackLineY - 6f,
+                                    paint
+                                )
+                            }
+
+                            // Vertical Clearance text
+                            paint.color = Color(0xFF047857).toArgb() // Emerald text
+                            paint.textAlign = Paint.Align.LEFT
+                            drawContext.canvas.nativeCanvas.drawText(
+                                "Clear: ${String.format("%.1f", entryClearance)} ft",
+                                clearanceLineX + 8f,
+                                (toCY(floorYAtEntrance) + ceilYBottom) / 2f + 3f,
+                                paint
+                            )
+
+                            // Title texts for garage/portal
+                            paint.color = textLabelColor.toArgb()
+                            paint.textAlign = Paint.Align.CENTER
+                            paint.typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+                            drawContext.canvas.nativeCanvas.drawText(
+                                "GARAGE ENTRANCE",
+                                ceilStartX + 45f * scale,
+                                ceilYTop - 25f,
+                                paint
+                            )
+                            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                            drawContext.canvas.nativeCanvas.drawText(
+                                "Ceiling: +${String.format("%.1f", config.basementTopLevel)} ft",
+                                ceilStartX + 45f * scale,
+                                ceilYTop - 10f,
+                                paint
+                            )
+
+                            // Road Label near 0,0
+                            paint.color = Color(0xFF64748B).toArgb()
+                            paint.textAlign = Paint.Align.LEFT
+                            drawContext.canvas.nativeCanvas.drawText(
+                                "Road Level",
+                                toCX(xMin + 0.5f),
+                                toCY(0f) - 6f,
+                                paint
+                            )
+
+                            // Crest Label near peak
+                            paint.color = Color(0xFFD97706).toArgb()
+                            paint.textAlign = Paint.Align.CENTER
+                            drawContext.canvas.nativeCanvas.drawText(
+                                "Ramp Crest (+${String.format("%.2f", report.crestHeight)} ft)",
+                                toCX(config.gutterWidth + config.upwardRampLength),
+                                toCY(report.crestHeight) - 15f,
+                                paint
+                            )
+
+                            // Visual hollow circle highlights for adjustable handles
+                            // 1. Crest Handle
+                            drawCircle(
+                                color = Color(0xFFF59E0B),
+                                radius = 9f,
+                                center = Offset(toCX(crestX), toCY(report.crestHeight)),
+                                style = Stroke(width = 2.5f)
+                            )
+                            // 2. Ceiling Height Handle
+                            drawCircle(
+                                color = Color(0xFF10B981),
+                                radius = 9f,
+                                center = Offset(ceilStartX, ceilYBottom),
+                                style = Stroke(width = 2.5f)
+                            )
+                            // 3. Setback Handle
+                            if (config.basementOpenSpaceLength > 0.1f) {
+                                drawCircle(
+                                    color = Color(0xFF3B82F6),
+                                    radius = 9f,
+                                    center = Offset(ceilStartX, toCY(floorYAtEntrance)),
+                                    style = Stroke(width = 2.5f)
+                                )
+                            }
 
                             // Flood barrier water threat height (drawn outside road)
                             val waterPath = Path()
@@ -856,93 +1116,310 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                         exit = fadeOut() + shrinkVertically()
                     ) {
                         Column(modifier = Modifier.padding(top = 16.dp)) {
-                            // Flood Barrier / Upward Slope Ratio
-                            Text(
-                                text = "Upward Ramp (Flood Barrier) Slope: 1 : ${String.format("%.1f", config.upwardSlopeRatioDenominator)} " +
-                                        "(${String.format("%.1f", config.upwardSlopeRatio * 100)}%)",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Slider(
-                                value = config.upwardSlopeRatioDenominator,
-                                onValueChange = { config = config.copy(upwardSlopeRatioDenominator = it) },
-                                valueRange = 3.0f..10.0f,
-                                modifier = Modifier.testTag("upward_slope_slider")
-                            )
-
-                            // Downward Slope Ratio
-                            Text(
-                                text = "Downward Ramp Slope: 1 : ${String.format("%.1f", config.downwardSlopeRatioDenominator)} " +
-                                        "(${String.format("%.1f", config.downwardSlopeRatio * 100)}%)",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Slider(
-                                value = config.downwardSlopeRatioDenominator,
-                                onValueChange = { config = config.copy(downwardSlopeRatioDenominator = it) },
-                                valueRange = 5.0f..15.0f,
-                                modifier = Modifier.testTag("downward_slope_slider")
-                            )
-
-                            HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
-
-                            // Required Entrance Height
-                            Text(
-                                text = "Basement Entrance Clear Opening Height: ${String.format("%.1f", config.requiredClearHeight)} feet",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Slider(
-                                value = config.requiredClearHeight,
-                                onValueChange = { config = config.copy(requiredClearHeight = it) },
-                                valueRange = 6.5f..9.0f
-                            )
-
-                            // Basement Slab Top Height
-                            Text(
-                                text = "Basement Roof Ceiling Level (relative to road): +${String.format("%.1f", config.basementTopLevel)} feet",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Slider(
-                                value = config.basementTopLevel,
-                                onValueChange = { config = config.copy(basementTopLevel = it) },
-                                valueRange = 3.0f..7.0f
-                            )
-
-                            Spacer(modifier = Modifier.height(12.dp))
-
-                            // Open Space Setback Before Basement Opening
-                            Text(
-                                text = "Open Space Setback Before Basement Opening: ${String.format("%.1f", config.basementOpenSpaceLength)} feet",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Slider(
-                                value = config.basementOpenSpaceLength,
-                                onValueChange = { config = config.copy(basementOpenSpaceLength = it) },
-                                valueRange = 0.0f..25.0f,
-                                modifier = Modifier.testTag("basement_open_space_slider")
-                            )
-
-                            // Covered Gutter & Upward Rise lengths
-                            Row(modifier = Modifier.fillMaxWidth()) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Gutter Width: ${String.format("%.1f", config.gutterWidth)} ft", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                    Slider(
-                                        value = config.gutterWidth,
-                                        onValueChange = { config = config.copy(gutterWidth = it) },
-                                        valueRange = 1.0f..4.0f
+                            // Profile Mode Selector
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Color(0xFFE2E8F0))
+                                    .padding(4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                val isCustom = config.useCustomSegments
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (!isCustom) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable { config = config.copy(useCustomSegments = false) }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Standard Incline Mode",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (!isCustom) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
                                 }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text("Peak Ascent: ${String.format("%.1f", config.upwardRampLength)} ft", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
-                                    Slider(
-                                        value = config.upwardRampLength,
-                                        onValueChange = { config = config.copy(upwardRampLength = it) },
-                                        valueRange = 1.0f..5.0f
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(if (isCustom) MaterialTheme.colorScheme.primary else Color.Transparent)
+                                        .clickable { config = config.copy(useCustomSegments = true) }
+                                        .padding(vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "Custom Point-to-Point",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isCustom) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
                                     )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            if (config.useCustomSegments) {
+                                // CUSTOM POINT-TO-POINT SEGMENT BUILDER
+                                Text(
+                                    text = "Custom Slope Segment Sequences",
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(bottom = 4.dp)
+                                )
+                                Text(
+                                    text = "Add, remove, and fine-tune individual slope segments below. The canvas and simulation update dynamically.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(bottom = 12.dp)
+                                )
+
+                                config.segments.forEachIndexed { index, segment ->
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 6.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                verticalAlignment = Alignment.CenterVertically
+                                            ) {
+                                                Text(
+                                                    text = "Segment #${index + 1}: ${segment.name}",
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    fontWeight = FontWeight.Bold
+                                                )
+                                                
+                                                if (config.segments.size > 1) {
+                                                    Text(
+                                                        text = "Delete",
+                                                        color = MaterialTheme.colorScheme.error,
+                                                        style = MaterialTheme.typography.bodySmall,
+                                                        fontWeight = FontWeight.Bold,
+                                                        modifier = Modifier
+                                                            .clickable {
+                                                                val updated = config.segments.filterIndexed { i, _ -> i != index }
+                                                                config = config.copy(segments = updated)
+                                                            }
+                                                            .padding(4.dp)
+                                                    )
+                                                }
+                                            }
+
+                                            Spacer(modifier = Modifier.height(8.dp))
+
+                                            // Length Slider
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text("Horizontal Run Length:", style = MaterialTheme.typography.bodySmall)
+                                                Text("${String.format("%.1f", segment.length)} ft", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                            }
+                                            Slider(
+                                                value = segment.length,
+                                                onValueChange = { newL ->
+                                                    val updated = config.segments.mapIndexed { i, s ->
+                                                        if (i == index) s.copy(length = newL) else s
+                                                    }
+                                                    config = config.copy(segments = updated)
+                                                },
+                                                valueRange = 0.5f..20.0f
+                                            )
+
+                                            // Slope Slider
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                val pct = segment.slopeRatio * 100f
+                                                val slopeText = when {
+                                                    segment.slopeRatio > 0f -> "Upward +${String.format("%.1f", pct)}% (1 : ${String.format("%.1f", 1f/segment.slopeRatio)})"
+                                                    segment.slopeRatio < 0f -> "Downward ${String.format("%.1f", pct)}% (1 : ${String.format("%.1f", -1f/segment.slopeRatio)})"
+                                                    else -> "Flat (0.0%)"
+                                                }
+                                                Text("Incline Slope:", style = MaterialTheme.typography.bodySmall)
+                                                Text(slopeText, style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                            }
+                                            Slider(
+                                                value = segment.slopeRatio,
+                                                onValueChange = { newS ->
+                                                    val updated = config.segments.mapIndexed { i, s ->
+                                                        if (i == index) s.copy(slopeRatio = newS) else s
+                                                    }
+                                                    config = config.copy(segments = updated)
+                                                },
+                                                valueRange = -0.35f..0.35f
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                // Add Segment Button
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(MaterialTheme.colorScheme.primaryContainer)
+                                        .clickable {
+                                            val newId = (config.segments.size + 1).toString()
+                                            val lastSeg = config.segments.lastOrNull()
+                                            val nextSlope = lastSeg?.slopeRatio ?: 0f
+                                            val newSeg = RampSegment(
+                                                id = newId,
+                                                name = "Incline Section $newId",
+                                                length = 4.0f,
+                                                slopeRatio = nextSlope
+                                            )
+                                            config = config.copy(segments = config.segments + newSeg)
+                                        }
+                                        .padding(vertical = 12.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = "+ Add New Slope Segment",
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                                // Required Entrance Height & Top Level in Custom Mode as well
+                                Text(
+                                    text = "Basement Entrance Clear Opening Height: ${String.format("%.1f", config.requiredClearHeight)} feet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.requiredClearHeight,
+                                    onValueChange = { config = config.copy(requiredClearHeight = it) },
+                                    valueRange = 6.5f..9.0f
+                                )
+
+                                Text(
+                                    text = "Basement Roof Ceiling Level (relative to road): +${String.format("%.1f", config.basementTopLevel)} feet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.basementTopLevel,
+                                    onValueChange = { config = config.copy(basementTopLevel = it) },
+                                    valueRange = 3.0f..7.0f
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                Text(
+                                    text = "Open Space Setback Before Basement Opening: ${String.format("%.1f", config.basementOpenSpaceLength)} feet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.basementOpenSpaceLength,
+                                    onValueChange = { config = config.copy(basementOpenSpaceLength = it) },
+                                    valueRange = 0.0f..25.0f,
+                                    modifier = Modifier.testTag("basement_open_space_slider")
+                                )
+                            } else {
+                                // Flood Barrier / Upward Slope Ratio
+                                Text(
+                                    text = "Upward Ramp (Flood Barrier) Slope: 1 : ${String.format("%.1f", config.upwardSlopeRatioDenominator)} " +
+                                            "(${String.format("%.1f", config.upwardSlopeRatio * 100)}%)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.upwardSlopeRatioDenominator,
+                                    onValueChange = { config = config.copy(upwardSlopeRatioDenominator = it) },
+                                    valueRange = 3.0f..10.0f,
+                                    modifier = Modifier.testTag("upward_slope_slider")
+                                )
+
+                                // Downward Slope Ratio
+                                Text(
+                                    text = "Downward Ramp Slope: 1 : ${String.format("%.1f", config.downwardSlopeRatioDenominator)} " +
+                                            "(${String.format("%.1f", config.downwardSlopeRatio * 100)}%)",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.downwardSlopeRatioDenominator,
+                                    onValueChange = { config = config.copy(downwardSlopeRatioDenominator = it) },
+                                    valueRange = 5.0f..15.0f,
+                                    modifier = Modifier.testTag("downward_slope_slider")
+                                )
+
+                                HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+
+                                // Required Entrance Height
+                                Text(
+                                    text = "Basement Entrance Clear Opening Height: ${String.format("%.1f", config.requiredClearHeight)} feet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.requiredClearHeight,
+                                    onValueChange = { config = config.copy(requiredClearHeight = it) },
+                                    valueRange = 6.5f..9.0f
+                                )
+
+                                // Basement Slab Top Height
+                                Text(
+                                    text = "Basement Roof Ceiling Level (relative to road): +${String.format("%.1f", config.basementTopLevel)} feet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.basementTopLevel,
+                                    onValueChange = { config = config.copy(basementTopLevel = it) },
+                                    valueRange = 3.0f..7.0f
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Open Space Setback Before Basement Opening
+                                Text(
+                                    text = "Open Space Setback Before Basement Opening: ${String.format("%.1f", config.basementOpenSpaceLength)} feet",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.basementOpenSpaceLength,
+                                    onValueChange = { config = config.copy(basementOpenSpaceLength = it) },
+                                    valueRange = 0.0f..25.0f,
+                                    modifier = Modifier.testTag("basement_open_space_slider")
+                                )
+
+                                // Covered Gutter & Upward Rise lengths
+                                Row(modifier = Modifier.fillMaxWidth()) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Gutter Width: ${String.format("%.1f", config.gutterWidth)} ft", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                        Slider(
+                                            value = config.gutterWidth,
+                                            onValueChange = { config = config.copy(gutterWidth = it) },
+                                            valueRange = 1.0f..4.0f
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text("Peak Ascent: ${String.format("%.1f", config.upwardRampLength)} ft", style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Bold)
+                                        Slider(
+                                            value = config.upwardRampLength,
+                                            onValueChange = { config = config.copy(upwardRampLength = it) },
+                                            valueRange = 1.0f..5.0f
+                                        )
+                                    }
                                 }
                             }
 

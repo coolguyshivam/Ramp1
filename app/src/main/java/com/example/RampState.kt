@@ -83,6 +83,16 @@ data class VehicleProfile(
 }
 
 /**
+ * Represents a single segment in a custom multi-segment ramp profile.
+ */
+data class RampSegment(
+    val id: String,
+    val name: String,
+    val length: Float,       // length in feet
+    val slopeRatio: Float    // rise/run, positive is upward, negative is downward, zero is flat
+)
+
+/**
  * Technical configurations for the ramp design.
  */
 data class RampConfig(
@@ -110,7 +120,16 @@ data class RampConfig(
     val transitionBottomLength: Float = 4.0f,  // Transition at bottom (feet)
 
     // 5. Basement Open Space Length (before covered garage ceiling starts)
-    val basementOpenSpaceLength: Float = 10.0f
+    val basementOpenSpaceLength: Float = 10.0f,
+
+    // 6. Custom Multi-Segment Ramp Support
+    val useCustomSegments: Boolean = false,
+    val segments: List<RampSegment> = listOf(
+        RampSegment("1", "Gutter Slab", 2.0f, 0.0f),
+        RampSegment("2", "Upward Rise (1:5)", 2.0f, 0.20f),     // 20% upward slope
+        RampSegment("3", "Crest Flat", 1.0f, 0.0f),            // 1ft flat at peak
+        RampSegment("4", "Downward Ramp (1:8)", 16.0f, -0.125f) // 12.5% downward slope
+    )
 ) {
     val upwardSlopeRatio: Float get() = 1.0f / upwardSlopeRatioDenominator
     val downwardSlopeRatio: Float get() = 1.0f / downwardSlopeRatioDenominator
@@ -199,6 +218,20 @@ object RampCalculator {
      * Get the ramp elevation (y) at a horizontal distance (x) from the start.
      */
     fun getRampHeight(x: Float, config: RampConfig): Float {
+        if (config.useCustomSegments) {
+            if (x <= 0f) return 0f
+            var currentX = 0f
+            var currentY = 0f
+            for (segment in config.segments) {
+                if (x <= currentX + segment.length) {
+                    return currentY + (x - currentX) * segment.slopeRatio
+                }
+                currentY += segment.length * segment.slopeRatio
+                currentX += segment.length
+            }
+            return currentY
+        }
+
         val L_up = config.gutterWidth + config.upwardRampLength
         val S_up = config.upwardSlopeRatio
         val S_down = config.downwardSlopeRatio
@@ -273,20 +306,94 @@ object RampCalculator {
      * Compute full report data for a given configuration.
      */
     fun generateReport(config: RampConfig): RampReport {
-        val L_up = config.gutterWidth + config.upwardRampLength
-        val S_up = config.upwardSlopeRatio
-        val S_down = config.downwardSlopeRatio
-        
-        val crestHeight = L_up * S_up
-        val basementFloorLevel = config.basementTopLevel - config.requiredClearHeight
-        val downwardVerticalDrop = crestHeight - basementFloorLevel
-        val downwardHorizontalRun = downwardVerticalDrop / S_down
-        val totalHorizontalLength = L_up + downwardHorizontalRun
-        
-        // Calculate surface lengths
-        val upwardSurfaceLength = L_up * sqrt(1f + S_up * S_up)
-        val downwardSurfaceLength = downwardHorizontalRun * sqrt(1f + S_down * S_down)
-        val totalSurfaceLength = upwardSurfaceLength + downwardSurfaceLength
+        val crestHeight: Float
+        val basementFloorLevel: Float
+        val downwardVerticalDrop: Float
+        val downwardHorizontalRun: Float
+        val totalHorizontalLength: Float
+        val upwardSurfaceLength: Float
+        val downwardSurfaceLength: Float
+        val totalSurfaceLength: Float
+        val upwardSlopePercent: Float
+        val downwardSlopePercent: Float
+        val breakoverAngleDegrees: Float
+        val isCrestSlopeChangeSevere: Boolean
+
+        if (config.useCustomSegments) {
+            var maxElev = 0f
+            var currentY = 0f
+            var totalLength = 0f
+            var totalSurface = 0f
+            var upSurface = 0f
+            var downSurface = 0f
+            var maxSlopeDiff = 0f
+
+            for (i in config.segments.indices) {
+                val seg = config.segments[i]
+                val startY = currentY
+                val endY = currentY + seg.length * seg.slopeRatio
+                maxElev = maxOf(maxElev, startY, endY)
+                totalLength += seg.length
+                
+                val segSurf = seg.length * sqrt(1f + seg.slopeRatio * seg.slopeRatio)
+                totalSurface += segSurf
+                if (seg.slopeRatio >= 0f) {
+                    upSurface += segSurf
+                } else {
+                    downSurface += segSurf
+                }
+
+                currentY = endY
+
+                // Check angle diff with next segment
+                if (i < config.segments.size - 1) {
+                    val nextSeg = config.segments[i + 1]
+                    val angleDiff = Math.abs(atan2(seg.slopeRatio, 1f) - atan2(nextSeg.slopeRatio, 1f))
+                    maxSlopeDiff = maxOf(maxSlopeDiff, angleDiff)
+                }
+            }
+
+            crestHeight = maxElev
+            basementFloorLevel = currentY
+            downwardVerticalDrop = crestHeight - basementFloorLevel
+            downwardHorizontalRun = totalLength
+            totalHorizontalLength = totalLength
+            upwardSurfaceLength = upSurface
+            downwardSurfaceLength = downSurface
+            totalSurfaceLength = totalSurface
+
+            // Approximate slopes for reporting from segment maxes
+            val maxUpSlope = config.segments.filter { it.slopeRatio > 0f }.maxOfOrNull { it.slopeRatio } ?: 0f
+            val maxDownSlope = config.segments.filter { it.slopeRatio < 0f }.minOfOrNull { it.slopeRatio } ?: 0f
+            upwardSlopePercent = maxUpSlope * 100f
+            downwardSlopePercent = -maxDownSlope * 100f
+
+            breakoverAngleDegrees = maxSlopeDiff * (180f / Math.PI.toFloat())
+            isCrestSlopeChangeSevere = breakoverAngleDegrees > 11.5f
+        } else {
+            val L_up = config.gutterWidth + config.upwardRampLength
+            val S_up = config.upwardSlopeRatio
+            val S_down = config.downwardSlopeRatio
+            
+            crestHeight = L_up * S_up
+            basementFloorLevel = config.basementTopLevel - config.requiredClearHeight
+            downwardVerticalDrop = crestHeight - basementFloorLevel
+            downwardHorizontalRun = downwardVerticalDrop / S_down
+            totalHorizontalLength = L_up + downwardHorizontalRun
+            
+            upwardSurfaceLength = L_up * sqrt(1f + S_up * S_up)
+            downwardSurfaceLength = downwardHorizontalRun * sqrt(1f + S_down * S_down)
+            totalSurfaceLength = upwardSurfaceLength + downwardSurfaceLength
+            
+            upwardSlopePercent = S_up * 100f
+            downwardSlopePercent = S_down * 100f
+            
+            val angleUpRad = atan2(S_up, 1f)
+            val angleDownRad = atan2(S_down, 1f)
+            breakoverAngleDegrees = (angleUpRad + angleDownRad) * (180f / Math.PI.toFloat())
+            
+            isCrestSlopeChangeSevere = (S_up + S_down) > 0.20f // Total change in slope greater than 20%
+        }
         
         // Concrete Volume (CFT)
         val slabThickFt = config.slabThicknessInches / 12f
@@ -324,17 +431,6 @@ object RampCalculator {
         val sandCFT = (sandPart / mixSum) * dryVolumeCFT
         val aggregateCFT = (aggregatePart / mixSum) * dryVolumeCFT
         val steelWeightKg = concreteVolumeCum * config.steelDensityKgPerM3
-        
-        // Hazards
-        val upwardSlopePercent = S_up * 100f
-        val downwardSlopePercent = S_down * 100f
-        
-        // Change in slope angle (breakover challenge)
-        val angleUpRad = atan2(S_up, 1f)
-        val angleDownRad = atan2(S_down, 1f)
-        val breakoverAngleDegrees = (angleUpRad + angleDownRad) * (180f / Math.PI.toFloat())
-        
-        val isCrestSlopeChangeSevere = (S_up + S_down) > 0.20f // Total change in slope greater than 20%
         
         return RampReport(
             config = config,
