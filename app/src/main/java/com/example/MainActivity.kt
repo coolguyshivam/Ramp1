@@ -73,6 +73,7 @@ import kotlin.math.cos
 import kotlin.math.sin
 import com.example.ui.theme.MyApplicationTheme
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.ui.input.pointer.pointerInput
 import android.graphics.Paint
 import android.graphics.Typeface
@@ -145,9 +146,12 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
     }
 
     // Car position slider (horizontal coordinate of front wheel relative to the start)
-    // Range covers some buffer on road (-8 ft) to past basement entrance (L_total + basementOpenSpace + 8 ft)
-    val maxScrollDist = report.totalHorizontalLength + config.basementOpenSpaceLength + 8f
-    var carPositionX by remember(report.totalHorizontalLength, config.basementOpenSpaceLength) { mutableFloatStateOf(0f) }
+    // Range covers some buffer on road (-8 ft) to past basement end point
+    val maxScrollDist = maxOf(report.totalHorizontalLength, config.basementEndX) + 8f
+    var carPositionX by remember(report.totalHorizontalLength, config.basementEndX) { mutableFloatStateOf(0f) }
+
+    // Headroom inspector horizontal position (feet from road)
+    var inspectorX by remember(config.basementEntranceX, config.basementEndX) { mutableFloatStateOf(config.basementEntranceX) }
 
     // Run scraping simulation
     val simulationResult = remember(carPositionX, config, activeVehicle) {
@@ -200,29 +204,6 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                         style = MaterialTheme.typography.bodyMedium.copy(
                             color = MaterialTheme.colorScheme.secondary
                         )
-                    )
-                }
-            }
-            Spacer(modifier = Modifier.height(8.dp))
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                ),
-                shape = RoundedCornerShape(12.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.padding(12.dp)) {
-                    Text(
-                        text = "💡 Context: Flood Protection & Entrance Clearance",
-                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = "In flood-prone areas, an initial upward rise of 1:5 slope over 4 feet (including 2 feet covered gutter) prevents water logging up to 9.6 inches deep from entering your basement. After the peak, the ramp drops smoothly at 1:8 slope to reach the basement floor with at least 7.5 feet opening height.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        lineHeight = 16.sp
                     )
                 }
             }
@@ -461,14 +442,67 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             .height(240.dp)
                             .background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp))
                             .border(1.dp, Color.LightGray, RoundedCornerShape(8.dp))
-                            .pointerInput(config, report, carPositionX) {
+                            .pointerInput(config, report, carPositionX, inspectorX) {
+                                detectTapGestures { offset ->
+                                    val width = size.width.toFloat()
+                                    val height = size.height.toFloat()
+                                    
+                                    val xMin = -6f
+                                    val xMax = maxOf(report.totalHorizontalLength, config.basementEndX) + 8f
+                                    val yMin = report.basementFloorLevel - 1.5f
+                                    val yMax = maxOf(config.basementTopLevel, report.crestHeight) + 1.2f
+
+                                    val totalXRange = xMax - xMin
+                                    val totalYRange = yMax - yMin
+
+                                    val paddingLeftRight = 40f
+                                    val paddingTopBottom = 40f
+
+                                    val scaleX = (width - 2f * paddingLeftRight) / totalXRange
+                                    val scaleY = (height - 2f * paddingTopBottom) / totalYRange
+                                    val scale = minOf(scaleX, scaleY)
+
+                                    val drawWidth = totalXRange * scale
+                                    val drawHeight = totalYRange * scale
+                                    val offsetX = paddingLeftRight + (width - 2f * paddingLeftRight - drawWidth) / 2f
+                                    val offsetY = paddingTopBottom + (height - 2f * paddingTopBottom - drawHeight) / 2f
+                                    
+                                    fun toCX(x: Float): Float = offsetX + (x - xMin) * scale
+                                    fun toCY(y: Float): Float = offsetY + (yMax - y) * scale
+
+                                    // Let's check distance to other handles to avoid stealing clicks from handles
+                                    val entranceCx = toCX(config.basementEntranceX)
+                                    val entranceCy = toCY(config.basementTopLevel - 0.6f)
+                                    val distToEntrance = Math.hypot((offset.x - entranceCx).toDouble(), (offset.y - entranceCy).toDouble())
+                                    
+                                    val endCx = toCX(config.basementEndX)
+                                    val endCy = toCY(config.basementTopLevel - 0.6f)
+                                    val distToBasementEnd = Math.hypot((offset.x - endCx).toDouble(), (offset.y - endCy).toDouble())
+
+                                    val ceilingCx = toCX((config.basementEntranceX + config.basementEndX) / 2f)
+                                    val ceilingCy = toCY(config.basementTopLevel - 0.3f)
+                                    val distToCeiling = Math.hypot((offset.x - ceilingCx).toDouble(), (offset.y - ceilingCy).toDouble())
+
+                                    val crestX = config.gutterWidth + config.upwardRampLength
+                                    val crestCx = toCX(crestX)
+                                    val crestCy = toCY(report.crestHeight)
+                                    val distToCrest = Math.hypot((offset.x - crestCx).toDouble(), (offset.y - crestCy).toDouble())
+
+                                    // If not close to any handles, move the inspectorX
+                                    if (distToEntrance >= 45f && distToBasementEnd >= 45f && distToCeiling >= 45f && distToCrest >= 45f) {
+                                        val tappedX = (xMin + (offset.x - offsetX) / scale).coerceIn(0.0f, maxScrollDist)
+                                        inspectorX = tappedX
+                                    }
+                                }
+                            }
+                            .pointerInput(config, report, carPositionX, inspectorX) {
                                 detectDragGestures(
                                     onDragStart = { offset ->
                                         val width = size.width.toFloat()
                                         val height = size.height.toFloat()
                                         
                                         val xMin = -6f
-                                        val xMax = report.totalHorizontalLength + config.basementOpenSpaceLength + 8f
+                                        val xMax = maxOf(report.totalHorizontalLength, config.basementEndX) + 8f
                                         val yMin = report.basementFloorLevel - 1.5f
                                         val yMax = maxOf(config.basementTopLevel, report.crestHeight) + 1.2f
 
@@ -495,29 +529,45 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                         val carCx = toCX(carPositionX)
                                         val distToCar = Math.hypot((offset.x - carCx).toDouble(), (offset.y - toCY(0.5f)).toDouble())
                                         
-                                        // 2. Open Space Setback Handle
-                                        val entranceX = report.totalHorizontalLength + config.basementOpenSpaceLength
-                                        val setbackCx = toCX(entranceX)
-                                        val setbackCy = toCY(RampCalculator.getRampHeight(entranceX, config))
-                                        val distToSetback = Math.hypot((offset.x - setbackCx).toDouble(), (offset.y - setbackCy).toDouble())
+                                        // 2. Basement Entrance X Handle (lip bottom corner)
+                                        val entranceCx = toCX(config.basementEntranceX)
+                                        val entranceCy = toCY(config.basementTopLevel - 0.6f)
+                                        val distToEntrance = Math.hypot((offset.x - entranceCx).toDouble(), (offset.y - entranceCy).toDouble())
                                         
-                                        // 3. Ceiling Height Handle
-                                        val ceilingCx = toCX(entranceX)
-                                        val ceilingCy = toCY(config.basementTopLevel - 0.6f)
+                                        // 3. Basement End X Handle (lip back corner)
+                                        val endCx = toCX(config.basementEndX)
+                                        val endCy = toCY(config.basementTopLevel - 0.6f)
+                                        val distToBasementEnd = Math.hypot((offset.x - endCx).toDouble(), (offset.y - endCy).toDouble())
+
+                                        // 4. Ceiling Height Handle (centered horizontally)
+                                        val ceilingCx = toCX((config.basementEntranceX + config.basementEndX) / 2f)
+                                        val ceilingCy = toCY(config.basementTopLevel - 0.3f)
                                         val distToCeiling = Math.hypot((offset.x - ceilingCx).toDouble(), (offset.y - ceilingCy).toDouble())
                                         
-                                        // 4. Crest Height / Incline Handle
+                                        // 5. Crest Height / Incline Handle
                                         val crestX = config.gutterWidth + config.upwardRampLength
                                         val crestCx = toCX(crestX)
                                         val crestCy = toCY(report.crestHeight)
                                         val distToCrest = Math.hypot((offset.x - crestCx).toDouble(), (offset.y - crestCy).toDouble())
+
+                                        // 6. Headroom Inspector Handle
+                                        val inspectorCx = toCX(inspectorX)
+                                        val inspectorCy = toCY(RampCalculator.getRampHeight(inspectorX, config))
+                                        val distToInspector = Math.hypot((offset.x - inspectorCx).toDouble(), (offset.y - inspectorCy).toDouble())
                                         
                                         activeDragHandle = when {
-                                            distToCeiling < 50f -> "ceiling"
-                                            distToSetback < 50f -> "setback"
-                                            distToCrest < 50f -> "crest"
+                                            distToEntrance < 45f -> "entrance"
+                                            distToBasementEnd < 45f -> "basementEnd"
+                                            distToCeiling < 45f -> "ceiling"
+                                            distToInspector < 45f -> "inspector"
+                                            distToCrest < 45f -> "crest"
                                             distToCar < 80f -> "car"
-                                            else -> "car" // Tap-drag anywhere else defaults to rolling the car
+                                            else -> "inspector" // Tap-drag anywhere else defaults to point inspector!
+                                        }
+
+                                        if (activeDragHandle == "inspector") {
+                                            val tappedX = (xMin + (offset.x - offsetX) / scale).coerceIn(0.0f, maxScrollDist)
+                                            inspectorX = tappedX
                                         }
                                     },
                                     onDrag = { change, dragAmount ->
@@ -525,7 +575,7 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                         val height = size.height.toFloat()
                                         
                                         val xMin = -6f
-                                        val xMax = report.totalHorizontalLength + config.basementOpenSpaceLength + 8f
+                                        val xMax = maxOf(report.totalHorizontalLength, config.basementEndX) + 8f
                                         val yMin = report.basementFloorLevel - 1.5f
                                         val yMax = maxOf(config.basementTopLevel, report.crestHeight) + 1.2f
 
@@ -546,9 +596,13 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                             "car" -> {
                                                 carPositionX = (carPositionX + dragXFt).coerceIn(-6f, maxScrollDist)
                                             }
-                                            "setback" -> {
-                                                val newSetback = (config.basementOpenSpaceLength + dragXFt).coerceIn(0.0f, 25.0f)
-                                                config = config.copy(basementOpenSpaceLength = newSetback)
+                                            "entrance" -> {
+                                                val newEntranceX = (config.basementEntranceX + dragXFt).coerceIn(4.0f, config.basementEndX - 2.0f)
+                                                config = config.copy(basementEntranceX = newEntranceX)
+                                            }
+                                            "basementEnd" -> {
+                                                val newEndX = (config.basementEndX + dragXFt).coerceIn(config.basementEntranceX + 2.0f, 60.0f)
+                                                config = config.copy(basementEndX = newEndX)
                                             }
                                             "ceiling" -> {
                                                 val newCeiling = (config.basementTopLevel + dragYFt).coerceIn(3.0f, 10.0f)
@@ -557,6 +611,9 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                             "crest" -> {
                                                 val newUpwardLength = (config.upwardRampLength + dragXFt).coerceIn(1.0f, 15.0f)
                                                 config = config.copy(upwardRampLength = newUpwardLength)
+                                            }
+                                            "inspector" -> {
+                                                inspectorX = (inspectorX + dragXFt).coerceIn(0.0f, maxScrollDist)
                                             }
                                         }
                                     },
@@ -572,7 +629,7 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
 
                             // Visual coordinate boundary
                             val xMin = -6f
-                            val xMax = report.totalHorizontalLength + config.basementOpenSpaceLength + 8f
+                            val xMax = maxOf(report.totalHorizontalLength, config.basementEndX) + 8f
                             val yMin = report.basementFloorLevel - 1.5f
                             val yMax = maxOf(config.basementTopLevel, report.crestHeight) + 1.2f
 
@@ -667,10 +724,10 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             )
 
                             // 4. DRAW BASEMENT CEILING AND OPENING
-                            // Ceiling starts at L_total (entrance) and goes inwards
-                            val entranceX = report.totalHorizontalLength + config.basementOpenSpaceLength
+                            // Ceiling starts at basementEntranceX and ends at basementEndX
+                            val entranceX = config.basementEntranceX
                             val ceilStartX = toCX(entranceX)
-                            val ceilEndX = toCX(xMax)
+                            val ceilEndX = toCX(config.basementEndX)
                             val ceilYTop = toCY(config.basementTopLevel)
                             val ceilYBottom = toCY(config.basementTopLevel - 0.6f) // 7 inches slab
                             
@@ -742,11 +799,12 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             drawCircle(color = Color(0xFF10B981), radius = 4f, center = Offset(clearanceLineX, toCY(floorYAtEntrance)))
                             drawCircle(color = Color(0xFF10B981), radius = 4f, center = Offset(clearanceLineX, ceilYBottom))
 
-                            // B. Horizontal Open Setback dimension line
-                            val crestXCoord = report.totalHorizontalLength
+                            // B. Horizontal Open Setback dimension line from crest to entrance
+                            val crestXCoord = config.gutterWidth + config.upwardRampLength
                             val crestCXCoord = toCX(crestXCoord)
-                            val setbackLineY = toCY(maxOf(0f, report.crestHeight) + 0.3f)
-                            if (config.basementOpenSpaceLength > 0.1f) {
+                            val setbackLineY = toCY(maxOf(0f, report.crestHeight) + 0.5f)
+                            val setbackVal = config.basementEntranceX - crestXCoord
+                            if (setbackVal > 0.1f) {
                                 drawLine(
                                     color = Color(0xFF3B82F6), // Blue dimension line
                                     start = Offset(crestCXCoord, setbackLineY),
@@ -766,10 +824,10 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             }
 
                             // Horizontal Setback text
-                            if (config.basementOpenSpaceLength > 0.1f) {
+                            if (setbackVal > 0.1f) {
                                 paint.color = Color(0xFF1D4ED8).toArgb() // Blue text
                                 drawContext.canvas.nativeCanvas.drawText(
-                                    "Setback: ${String.format("%.1f", config.basementOpenSpaceLength)} ft",
+                                    "Setback: ${String.format("%.1f", setbackVal)} ft",
                                     (crestCXCoord + ceilStartX) / 2f,
                                     setbackLineY - 6f,
                                     paint
@@ -824,6 +882,57 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                 paint
                             )
 
+                            // --- LIVE HEADROOM INSPECTOR OVERLAY DRAWING ---
+                            val inspCX = toCX(inspectorX)
+                            val inspFloorY = RampCalculator.getRampHeight(inspectorX, config)
+                            val inspFloorCY = toCY(inspFloorY)
+                            val isInsideCovered = inspectorX in config.basementEntranceX..config.basementEndX
+                            
+                            if (isInsideCovered) {
+                                val headroomVal = config.basementTopLevel - inspFloorY
+                                val isBelowReq = headroomVal < config.requiredClearHeight
+                                val inspLineColor = if (isBelowReq) Color(0xFFEF4444) else Color(0xFF8B5CF6)
+                                
+                                drawLine(
+                                    color = inspLineColor,
+                                    start = Offset(inspCX, inspFloorCY),
+                                    end = Offset(inspCX, ceilYBottom),
+                                    strokeWidth = 3f,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+                                )
+                                drawCircle(color = inspLineColor, radius = 4f, center = Offset(inspCX, inspFloorCY))
+                                drawCircle(color = inspLineColor, radius = 4f, center = Offset(inspCX, ceilYBottom))
+                                
+                                paint.color = inspLineColor.toArgb()
+                                paint.textAlign = Paint.Align.CENTER
+                                paint.typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    "HR: ${String.format("%.1f", headroomVal)} ft",
+                                    inspCX,
+                                    (inspFloorCY + ceilYBottom) / 2f - 4f,
+                                    paint
+                                )
+                            } else {
+                                drawLine(
+                                    color = Color.Gray.copy(alpha = 0.4f),
+                                    start = Offset(inspCX, inspFloorCY),
+                                    end = Offset(inspCX, toCY(config.basementTopLevel)),
+                                    strokeWidth = 2f,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f)
+                                )
+                                drawCircle(color = Color.Gray.copy(alpha = 0.4f), radius = 3f, center = Offset(inspCX, inspFloorCY))
+                                
+                                paint.color = Color.Gray.toArgb()
+                                paint.textAlign = Paint.Align.CENTER
+                                paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
+                                drawContext.canvas.nativeCanvas.drawText(
+                                    "Open Air",
+                                    inspCX,
+                                    inspFloorCY - 15f,
+                                    paint
+                                )
+                            }
+
                             // Visual hollow circle highlights for adjustable handles
                             // 1. Crest Handle
                             drawCircle(
@@ -832,22 +941,34 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                 center = Offset(toCX(crestX), toCY(report.crestHeight)),
                                 style = Stroke(width = 2.5f)
                             )
-                            // 2. Ceiling Height Handle
+                            // 2. Entrance Lip Handle
                             drawCircle(
-                                color = Color(0xFF10B981),
+                                color = Color(0xFF0284C7),
                                 radius = 9f,
                                 center = Offset(ceilStartX, ceilYBottom),
                                 style = Stroke(width = 2.5f)
                             )
-                            // 3. Setback Handle
-                            if (config.basementOpenSpaceLength > 0.1f) {
-                                drawCircle(
-                                    color = Color(0xFF3B82F6),
-                                    radius = 9f,
-                                    center = Offset(ceilStartX, toCY(floorYAtEntrance)),
-                                    style = Stroke(width = 2.5f)
-                                )
-                            }
+                            // 3. Basement End Handle
+                            drawCircle(
+                                color = Color(0xFF701A75),
+                                radius = 9f,
+                                center = Offset(ceilEndX, ceilYBottom),
+                                style = Stroke(width = 2.5f)
+                            )
+                            // 4. Ceiling Height Handle (Middle)
+                            drawCircle(
+                                color = Color(0xFF10B981),
+                                radius = 9f,
+                                center = Offset((ceilStartX + ceilEndX) / 2f, ceilYBottom),
+                                style = Stroke(width = 2.5f)
+                            )
+                            // 5. Headroom Inspector Handle
+                            drawCircle(
+                                color = Color(0xFF8B5CF6),
+                                radius = 10f,
+                                center = Offset(inspCX, inspFloorCY),
+                                style = Stroke(width = 2.5f)
+                            )
 
                             // Flood barrier water threat height (drawn outside road)
                             val waterPath = Path()
@@ -1079,6 +1200,174 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             }
                         }
                     }
+                }
+            }
+        }
+
+        // --- LIVE HEADROOM INSPECTOR CARD ---
+        item {
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text("📏", fontSize = 16.sp)
+                        }
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Live Headroom Inspector",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Drag the purple ruler handle on the canvas or use the slider below to inspect headroom (ceiling clearance) at any point along the ramp.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    val floorHeight = RampCalculator.getRampHeight(inspectorX, config)
+                    val isInsideCovered = inspectorX in config.basementEntranceX..config.basementEndX
+                    val headroom = if (isInsideCovered) config.basementTopLevel - floorHeight else -1f
+                    
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(
+                                if (isInsideCovered) {
+                                    if (headroom < config.requiredClearHeight) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                                    else Color(0xFFE2F0D9)
+                                } else {
+                                    MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                                },
+                                RoundedCornerShape(12.dp)
+                            )
+                            .padding(14.dp)
+                    ) {
+                        Text(
+                            text = "📍 Inspected Point: ${String.format("%.1f", inspectorX)} feet from road",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "FLOOR LEVEL",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                val floorSign = if (floorHeight < 0) "below road" else if (floorHeight > 0) "above road" else "road level"
+                                Text(
+                                    text = "${String.format("%.2f", floorHeight)} ft (${String.format("%.1f", Math.abs(floorHeight * 12f))} in $floorSign)",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                
+                                Text(
+                                    text = "CEILING LEVEL",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (isInsideCovered) "${String.format("%.2f", config.basementTopLevel)} ft (${String.format("%.1f", config.basementTopLevel * 12f)} in above road)" else "Open Air (No Ceiling)",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+                            
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "FLOOR-TO-CEILING HEIGHT",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = if (isInsideCovered) "${String.format("%.2f", headroom)} ft (${String.format("%.1f", headroom * 12f)} in)" else "Unlimited (Open Air)",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = if (isInsideCovered) {
+                                        if (headroom < config.requiredClearHeight) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurface
+                                    }
+                                )
+                                Spacer(modifier = Modifier.height(10.dp))
+                                
+                                Text(
+                                    text = "REQUIRED HEIGHT",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    text = "${String.format("%.2f", config.requiredClearHeight)} ft (${String.format("%.0f", config.requiredClearHeight * 12f)} in)",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                )
+                            }
+                        }
+                        
+                        HorizontalDivider(
+                            modifier = Modifier.padding(vertical = 10.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f)
+                        )
+                        
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            val statusIcon = if (isInsideCovered) {
+                                if (headroom < config.requiredClearHeight) Icons.Default.Warning else Icons.Default.CheckCircle
+                            } else {
+                                Icons.Default.Info
+                            }
+                            val statusColor = if (isInsideCovered) {
+                                if (headroom < config.requiredClearHeight) MaterialTheme.colorScheme.error else Color(0xFF2E7D32)
+                            } else {
+                                MaterialTheme.colorScheme.primary
+                            }
+                            Icon(
+                                imageVector = statusIcon,
+                                contentDescription = "Status Icon",
+                                tint = statusColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isInsideCovered) {
+                                    if (headroom < config.requiredClearHeight) "⚠️ SCRAPE RISK: Clearance is deficient by ${String.format("%.1f", (config.requiredClearHeight - headroom) * 12f)} inches!"
+                                    else "✅ SAFE CLEARANCE: Clearance exceeds requirement by ${String.format("%.1f", (headroom - config.requiredClearHeight) * 12f)} inches."
+                                } else {
+                                    "✨ OPEN SKY ZONE: Free overhead clearance. Fully safe."
+                                },
+                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                color = statusColor
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Slider(
+                        value = inspectorX,
+                        onValueChange = { inspectorX = it },
+                        valueRange = 0.0f..maxScrollDist,
+                        modifier = Modifier.fillMaxWidth().testTag("headroom_inspector_slider")
+                    )
                 }
             }
         }
@@ -1320,16 +1609,38 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
+                                // Basement Entrance X Position Slider
                                 Text(
-                                    text = "Open Space Setback Before Basement Opening: ${String.format("%.1f", config.basementOpenSpaceLength)} feet",
+                                    text = "Basement Entrance (Starts after drain end): ${String.format("%.1f", config.basementEntranceX)} feet from road",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Slider(
-                                    value = config.basementOpenSpaceLength,
-                                    onValueChange = { config = config.copy(basementOpenSpaceLength = it) },
-                                    valueRange = 0.0f..25.0f,
-                                    modifier = Modifier.testTag("basement_open_space_slider")
+                                    value = config.basementEntranceX,
+                                    onValueChange = { 
+                                        val newEntranceX = it
+                                        val newEndX = maxOf(config.basementEndX, newEntranceX + 2.0f)
+                                        config = config.copy(basementEntranceX = newEntranceX, basementEndX = newEndX)
+                                    },
+                                    valueRange = 4.0f..35.0f,
+                                    modifier = Modifier.testTag("basement_entrance_slider_custom")
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Basement End X Position Slider
+                                Text(
+                                    text = "Basement End Point: ${String.format("%.1f", config.basementEndX)} feet from road",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.basementEndX,
+                                    onValueChange = { 
+                                        config = config.copy(basementEndX = maxOf(it, config.basementEntranceX + 2.0f))
+                                    },
+                                    valueRange = 15.0f..60.0f,
+                                    modifier = Modifier.testTag("basement_end_slider_custom")
                                 )
                             } else {
                                 // Flood Barrier / Upward Slope Ratio
@@ -1388,17 +1699,38 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // Open Space Setback Before Basement Opening
+                                // Basement Entrance X Position Slider
                                 Text(
-                                    text = "Open Space Setback Before Basement Opening: ${String.format("%.1f", config.basementOpenSpaceLength)} feet",
+                                    text = "Basement Entrance (Starts after drain end): ${String.format("%.1f", config.basementEntranceX)} feet from road",
                                     style = MaterialTheme.typography.bodyMedium,
                                     fontWeight = FontWeight.Bold
                                 )
                                 Slider(
-                                    value = config.basementOpenSpaceLength,
-                                    onValueChange = { config = config.copy(basementOpenSpaceLength = it) },
-                                    valueRange = 0.0f..25.0f,
-                                    modifier = Modifier.testTag("basement_open_space_slider")
+                                    value = config.basementEntranceX,
+                                    onValueChange = { 
+                                        val newEntranceX = it
+                                        val newEndX = maxOf(config.basementEndX, newEntranceX + 2.0f)
+                                        config = config.copy(basementEntranceX = newEntranceX, basementEndX = newEndX)
+                                    },
+                                    valueRange = 4.0f..35.0f,
+                                    modifier = Modifier.testTag("basement_entrance_slider_standard")
+                                )
+
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                // Basement End X Position Slider
+                                Text(
+                                    text = "Basement End Point: ${String.format("%.1f", config.basementEndX)} feet from road",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Slider(
+                                    value = config.basementEndX,
+                                    onValueChange = { 
+                                        config = config.copy(basementEndX = maxOf(it, config.basementEntranceX + 2.0f))
+                                    },
+                                    valueRange = 15.0f..60.0f,
+                                    modifier = Modifier.testTag("basement_end_slider_standard")
                                 )
 
                                 // Covered Gutter & Upward Rise lengths
@@ -1502,12 +1834,18 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             ReportItem(label = "Flood Barrier Height (Peak)", value = "${String.format("%.1f", report.crestHeight * 12f)} inches (${String.format("%.2f", report.crestHeight)} ft)")
                             ReportItem(label = "Basement Floor Level", value = "${String.format("%.2f", report.basementFloorLevel)} ft below road")
                             ReportItem(label = "Downward Vertical Drop", value = "${String.format("%.2f", report.downwardVerticalDrop)} ft")
+                            ReportItem(label = "Basement Entrance Point", value = "${String.format("%.1f", config.basementEntranceX)} ft from road")
+                            val hAtEntrance = config.basementTopLevel - RampCalculator.getRampHeight(config.basementEntranceX, config)
+                            ReportItem(label = "Headroom at Entrance", value = "${String.format("%.2f", hAtEntrance)} ft")
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             ReportItem(label = "Downward Horizontal Run", value = "${String.format("%.2f", report.downwardHorizontalRun)} ft")
                             ReportItem(label = "Total Ramp Sloped Length", value = "${String.format("%.2f", report.totalHorizontalLength)} ft")
-                            ReportItem(label = "Basement Open Setback", value = "${String.format("%.1f", config.basementOpenSpaceLength)} ft")
-                            ReportItem(label = "Total Run (incl. Setback)", value = "${String.format("%.2f", report.totalHorizontalLength + config.basementOpenSpaceLength)} ft")
+                            ReportItem(label = "Basement End Point", value = "${String.format("%.1f", config.basementEndX)} ft from road")
+                            val isInsideCovered = inspectorX in config.basementEntranceX..config.basementEndX
+                            val hAtInspector = if (isInsideCovered) config.basementTopLevel - RampCalculator.getRampHeight(inspectorX, config) else -1f
+                            val hAtInspectorText = if (isInsideCovered) "${String.format("%.2f", hAtInspector)} ft" else "Open Air"
+                            ReportItem(label = "Inspector Point (${String.format("%.1f", inspectorX)} ft)", value = hAtInspectorText)
                             ReportItem(label = "Total Ramp Surface Length", value = "${String.format("%.2f", report.totalSurfaceLength)} ft")
                         }
                     }

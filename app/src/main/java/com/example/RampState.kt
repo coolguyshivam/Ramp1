@@ -121,6 +121,8 @@ data class RampConfig(
 
     // 5. Basement Open Space Length (before covered garage ceiling starts)
     val basementOpenSpaceLength: Float = 10.0f,
+    val basementEntranceX: Float = 14.0f, // Distance from road where covered ceiling starts (feet)
+    val basementEndX: Float = 30.0f,      // Distance from road where covered ceiling ends (feet)
 
     // 6. Custom Multi-Segment Ramp Support
     val useCustomSegments: Boolean = false,
@@ -514,7 +516,7 @@ object RampCalculator {
         val delta_y_down = y_crest - y_floor
         val L_down = delta_y_down / S_down
         val L_total = L_up + L_down
-        val entranceX = L_total + config.basementOpenSpaceLength
+        val entranceX = config.basementEntranceX
 
         // Chassis underbody check
         // Check 20 equidistant points between front wheel and rear wheel
@@ -552,9 +554,9 @@ object RampCalculator {
                 }
             }
 
-            // Check roof clearance relative to covered basement ceiling (starting at entranceX)
+            // Check roof clearance relative to covered basement ceiling (between entrance and end point)
             val ptYRoof = ptYChassis + OH * cosTheta
-            if (ptX >= entranceX) {
+            if (ptX >= config.basementEntranceX && ptX <= config.basementEndX) {
                 val roofScrapeVal = ptYRoof - config.basementTopLevel
                 if (roofScrapeVal > 0f) {
                     roofScrape = true
