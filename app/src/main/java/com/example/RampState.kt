@@ -18,7 +18,8 @@ data class VehicleProfile(
     val frontBumperHeight: Float,  // in inches
     val rearBumperHeight: Float,   // in inches
     val powerDescription: String,
-    val torqueClimbCapability: String
+    val torqueClimbCapability: String,
+    val overallHeight: Float       // in feet
 ) {
     companion object {
         val Hatchback = VehicleProfile(
@@ -31,7 +32,8 @@ data class VehicleProfile(
             frontBumperHeight = 7.0f,  // 178 mm
             rearBumperHeight = 7.5f,   // 190 mm
             powerDescription = "Low Power (0.8L - 1.2L naturally aspirated engine)",
-            torqueClimbCapability = "Struggles starting on slopes > 15% (1:6.7); wet FWD slipping risk."
+            torqueClimbCapability = "Struggles starting on slopes > 15% (1:6.7); wet FWD slipping risk.",
+            overallHeight = 4.8f       // in feet
         )
 
         val Sedan = VehicleProfile(
@@ -44,7 +46,8 @@ data class VehicleProfile(
             frontBumperHeight = 8.0f,  // 203 mm
             rearBumperHeight = 8.5f,   // 216 mm
             powerDescription = "Medium Power (1.5L - 2.0L naturally aspirated)",
-            torqueClimbCapability = "Manageable up to 20% (1:5), FWD wheel-spin on wet slopes."
+            torqueClimbCapability = "Manageable up to 20% (1:5), FWD wheel-spin on wet slopes.",
+            overallHeight = 4.7f       // in feet
         )
 
         val SUV = VehicleProfile(
@@ -57,7 +60,8 @@ data class VehicleProfile(
             frontBumperHeight = 11.0f, // 280 mm
             rearBumperHeight = 11.5f,  // 290 mm
             powerDescription = "High Power (2.0L+ or Turbo, often AWD/RWD)",
-            torqueClimbCapability = "Comfortable climbing steep ramps up to 25% (1:4)."
+            torqueClimbCapability = "Comfortable climbing steep ramps up to 25% (1:4).",
+            overallHeight = 5.5f       // in feet
         )
 
         val Custom = VehicleProfile(
@@ -70,7 +74,8 @@ data class VehicleProfile(
             frontBumperHeight = 8.0f,
             rearBumperHeight = 8.5f,
             powerDescription = "Custom Power Specifications",
-            torqueClimbCapability = "Depends on vehicle engine and drive layout."
+            torqueClimbCapability = "Depends on vehicle engine and drive layout.",
+            overallHeight = 5.0f       // in feet
         )
 
         val PRESETS = listOf(Hatchback, Sedan, SUV, Custom)
@@ -102,7 +107,10 @@ data class RampConfig(
     val applyTransition: Boolean = true,
     val transitionStartLength: Float = 3.0f,  // Transition at start (feet)
     val transitionCrestLength: Float = 4.0f,  // Transition at crest (feet)
-    val transitionBottomLength: Float = 4.0f  // Transition at bottom (feet)
+    val transitionBottomLength: Float = 4.0f,  // Transition at bottom (feet)
+
+    // 5. Basement Open Space Length (before covered garage ceiling starts)
+    val basementOpenSpaceLength: Float = 10.0f
 ) {
     val upwardSlopeRatio: Float get() = 1.0f / upwardSlopeRatioDenominator
     val downwardSlopeRatio: Float get() = 1.0f / downwardSlopeRatioDenominator
@@ -124,6 +132,8 @@ data class ScrapingResult(
     val frontBumperScrapeAmount: Float,
     val rearBumperScrape: Boolean,
     val rearBumperScrapeAmount: Float,
+    val roofScrape: Boolean,
+    val roofScrapeAmount: Float,
     
     // Point-by-point details for drawing
     val frontWheelX: Float,
@@ -361,6 +371,7 @@ object RampCalculator {
         val ROH = vehicle.rearOverhang
         val FBH = vehicle.frontBumperHeight / 12f
         val RBH = vehicle.rearBumperHeight / 12f
+        val OH = vehicle.overallHeight // overall height in feet
         
         val frontWheelX = carX
         val rearWheelX = carX - WB
@@ -398,12 +409,26 @@ object RampCalculator {
         val rearBumperScrapeAmount = rampYAtRearBumper - rearBumperY_actual
         val rearBumperScrape = rearBumperScrapeAmount > 0f
         
+        // Compute where the covered basement opening roof begins
+        val L_up = config.gutterWidth + config.upwardRampLength
+        val S_up = config.upwardSlopeRatio
+        val S_down = config.downwardSlopeRatio
+        val y_crest = L_up * S_up
+        val y_floor = config.basementTopLevel - config.requiredClearHeight
+        val delta_y_down = y_crest - y_floor
+        val L_down = delta_y_down / S_down
+        val L_total = L_up + L_down
+        val entranceX = L_total + config.basementOpenSpaceLength
+
         // Chassis underbody check
         // Check 20 equidistant points between front wheel and rear wheel
         val underbodyPoints = mutableListOf<UnderbodyPointStatus>()
         var maxUnderbodyScrapeAmount = -999f
         var maxScrapeX: Float? = null
         
+        var maxRoofScrapeAmount = 0f
+        var roofScrape = false
+
         for (i in 0..20) {
             val ratio = i / 20f
             val ptX = rearWheelX + ratio * WB
@@ -430,6 +455,18 @@ object RampCalculator {
                     maxScrapeX = ptX
                 }
             }
+
+            // Check roof clearance relative to covered basement ceiling (starting at entranceX)
+            val ptYRoof = ptYChassis + OH * cosTheta
+            if (ptX >= entranceX) {
+                val roofScrapeVal = ptYRoof - config.basementTopLevel
+                if (roofScrapeVal > 0f) {
+                    roofScrape = true
+                    if (roofScrapeVal > maxRoofScrapeAmount) {
+                        maxRoofScrapeAmount = roofScrapeVal
+                    }
+                }
+            }
         }
         
         return ScrapingResult(
@@ -444,6 +481,8 @@ object RampCalculator {
             frontBumperScrapeAmount = if (frontBumperScrapeAmount > 0f) frontBumperScrapeAmount else 0f,
             rearBumperScrape = rearBumperScrape,
             rearBumperScrapeAmount = if (rearBumperScrapeAmount > 0f) rearBumperScrapeAmount else 0f,
+            roofScrape = roofScrape,
+            roofScrapeAmount = if (maxRoofScrapeAmount > 0f) maxRoofScrapeAmount else 0f,
             frontWheelX = frontWheelX,
             rearWheelX = rearWheelX,
             frontBumperX = frontBumperX,

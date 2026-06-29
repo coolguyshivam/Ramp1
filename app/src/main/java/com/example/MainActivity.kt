@@ -1,5 +1,8 @@
 package com.example
 
+// Ramp Designer MainActivity - Handles UI and simulation components
+
+
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -102,6 +105,7 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
     var customRearOverhang by remember { mutableFloatStateOf(VehicleProfile.Custom.rearOverhang) }
     var customFrontBumperHeight by remember { mutableFloatStateOf(VehicleProfile.Custom.frontBumperHeight) }
     var customRearBumperHeight by remember { mutableFloatStateOf(VehicleProfile.Custom.rearBumperHeight) }
+    var customOverallHeight by remember { mutableFloatStateOf(VehicleProfile.Custom.overallHeight) }
 
     // Synchronize selected vehicle with customized dimensions
     val activeVehicle = remember(
@@ -111,7 +115,8 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
         customFrontOverhang,
         customRearOverhang,
         customFrontBumperHeight,
-        customRearBumperHeight
+        customRearBumperHeight,
+        customOverallHeight
     ) {
         if (selectedVehiclePreset.name == "Custom Vehicle") {
             VehicleProfile.Custom.copy(
@@ -120,7 +125,8 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                 frontOverhang = customFrontOverhang,
                 rearOverhang = customRearOverhang,
                 frontBumperHeight = customFrontBumperHeight,
-                rearBumperHeight = customRearBumperHeight
+                rearBumperHeight = customRearBumperHeight,
+                overallHeight = customOverallHeight
             )
         } else {
             selectedVehiclePreset
@@ -133,9 +139,9 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
     }
 
     // Car position slider (horizontal coordinate of front wheel relative to the start)
-    // Range covers some buffer on road (-8 ft) to past basement entrance (L_total + 8 ft)
-    val maxScrollDist = report.totalHorizontalLength + 8f
-    var carPositionX by remember(report.totalHorizontalLength) { mutableFloatStateOf(0f) }
+    // Range covers some buffer on road (-8 ft) to past basement entrance (L_total + basementOpenSpace + 8 ft)
+    val maxScrollDist = report.totalHorizontalLength + config.basementOpenSpaceLength + 8f
+    var carPositionX by remember(report.totalHorizontalLength, config.basementOpenSpaceLength) { mutableFloatStateOf(0f) }
 
     // Run scraping simulation
     val simulationResult = remember(carPositionX, config, activeVehicle) {
@@ -144,7 +150,8 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
 
     val hasAnyScrape = simulationResult.underbodyScrapeAmount > 0f ||
             simulationResult.frontBumperScrape ||
-            simulationResult.rearBumperScrape
+            simulationResult.rearBumperScrape ||
+            simulationResult.roofScrape
 
     // Expandable settings states
     var showSlopeSettings by remember { mutableStateOf(true) }
@@ -362,6 +369,14 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             modifier = Modifier.testTag("custom_gc_slider")
                         )
 
+                        Text("Overall Vehicle Height: ${String.format("%.1f", customOverallHeight)} feet", style = MaterialTheme.typography.bodySmall)
+                        Slider(
+                            value = customOverallHeight,
+                            onValueChange = { customOverallHeight = it },
+                            valueRange = 3.5f..7.5f,
+                            modifier = Modifier.testTag("custom_height_slider")
+                        )
+
                         Row(modifier = Modifier.fillMaxWidth()) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text("Front Overhang: ${String.format("%.1f", customFrontOverhang)} ft", style = MaterialTheme.typography.bodySmall)
@@ -446,7 +461,7 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
 
                             // Visual coordinate boundary
                             val xMin = -6f
-                            val xMax = report.totalHorizontalLength + 6f
+                            val xMax = report.totalHorizontalLength + config.basementOpenSpaceLength + 8f
                             val yMin = report.basementFloorLevel - 1.5f
                             val yMax = maxOf(config.basementTopLevel, report.crestHeight) + 1.2f
 
@@ -542,7 +557,7 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
 
                             // 4. DRAW BASEMENT CEILING AND OPENING
                             // Ceiling starts at L_total (entrance) and goes inwards
-                            val entranceX = report.totalHorizontalLength
+                            val entranceX = report.totalHorizontalLength + config.basementOpenSpaceLength
                             val ceilStartX = toCX(entranceX)
                             val ceilEndX = toCX(xMax)
                             val ceilYTop = toCY(config.basementTopLevel)
@@ -597,7 +612,7 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             val wheelRadiusPx = 0.9f * scale
                             
                             // Draw wheels
-                            val hasAnyScrape = sim.underbodyScrapeAmount > 0f || sim.frontBumperScrape || sim.rearBumperScrape
+                            val hasAnyScrape = sim.underbodyScrapeAmount > 0f || sim.frontBumperScrape || sim.rearBumperScrape || sim.roofScrape
                             val wheelColor = if (hasAnyScrape) Color(0xFFEF4444) else Color(0xFF10B981)
                             
                             drawCircle(color = Color.Black, radius = wheelRadiusPx, center = Offset(fWX, fWY - wheelRadiusPx))
@@ -633,17 +648,16 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             val angleCos = cos(sim.chassisAngleRad)
                             val angleSin = sin(sim.chassisAngleRad)
                             
-                            // Roof coordinates relative to chassis
-                            val roofHeightPx = 3.8f * scale
-                            val frontRoofX = toCX(sim.frontWheelX - 1.0f * angleCos)
-                            val frontRoofY = toCY(sim.frontWheelY + 2.5f * angleCos + 2.5f * angleSin)
+                            val oh = activeVehicle.overallHeight
                             val rearRoofX = toCX(sim.rearWheelX + 1.0f * angleCos)
-                            val rearRoofY = toCY(sim.rearWheelY + 2.5f * angleCos - 0.5f * angleSin)
+                            val rearRoofY = toCY(sim.rearWheelY + oh)
+                            val frontRoofX = toCX(sim.frontWheelX - 1.2f * angleCos)
+                            val frontRoofY = toCY(sim.frontWheelY + oh)
                             
                             carCabinPath.moveTo(rBX, rBY)
                             carCabinPath.lineTo(rWX, rWY - wheelRadiusPx * 1.5f)
-                            carCabinPath.lineTo(rearRoofX, toCY(sim.rearWheelY + 3.2f))
-                            carCabinPath.lineTo(frontRoofX, toCY(sim.frontWheelY + 3.2f))
+                            carCabinPath.lineTo(rearRoofX, rearRoofY)
+                            carCabinPath.lineTo(frontRoofX, frontRoofY)
                             carCabinPath.lineTo(fWX, fWY - wheelRadiusPx * 1.5f)
                             carCabinPath.lineTo(fBX, fBY)
                             carCabinPath.close()
@@ -705,9 +719,20 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             scrapeAmount = if (simulationResult.frontBumperScrape) simulationResult.frontBumperScrapeAmount else 0f,
                             modifier = Modifier.weight(1f)
                         )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         ClearanceBadge(
                             label = "Rear Bumper",
                             scrapeAmount = if (simulationResult.rearBumperScrape) simulationResult.rearBumperScrapeAmount else 0f,
+                            modifier = Modifier.weight(1f)
+                        )
+                        ClearanceBadge(
+                            label = "Overhead Roof",
+                            scrapeAmount = if (simulationResult.roofScrape) simulationResult.roofScrapeAmount else 0f,
                             modifier = Modifier.weight(1f)
                         )
                     }
@@ -885,6 +910,21 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                 valueRange = 3.0f..7.0f
                             )
 
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            // Open Space Setback Before Basement Opening
+                            Text(
+                                text = "Open Space Setback Before Basement Opening: ${String.format("%.1f", config.basementOpenSpaceLength)} feet",
+                                style = MaterialTheme.typography.bodyMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Slider(
+                                value = config.basementOpenSpaceLength,
+                                onValueChange = { config = config.copy(basementOpenSpaceLength = it) },
+                                valueRange = 0.0f..25.0f,
+                                modifier = Modifier.testTag("basement_open_space_slider")
+                            )
+
                             // Covered Gutter & Upward Rise lengths
                             Row(modifier = Modifier.fillMaxWidth()) {
                                 Column(modifier = Modifier.weight(1f)) {
@@ -988,7 +1028,9 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                         }
                         Column(modifier = Modifier.weight(1f)) {
                             ReportItem(label = "Downward Horizontal Run", value = "${String.format("%.2f", report.downwardHorizontalRun)} ft")
-                            ReportItem(label = "Total Horizontal Length", value = "${String.format("%.2f", report.totalHorizontalLength)} ft")
+                            ReportItem(label = "Total Ramp Sloped Length", value = "${String.format("%.2f", report.totalHorizontalLength)} ft")
+                            ReportItem(label = "Basement Open Setback", value = "${String.format("%.1f", config.basementOpenSpaceLength)} ft")
+                            ReportItem(label = "Total Run (incl. Setback)", value = "${String.format("%.2f", report.totalHorizontalLength + config.basementOpenSpaceLength)} ft")
                             ReportItem(label = "Total Ramp Surface Length", value = "${String.format("%.2f", report.totalSurfaceLength)} ft")
                         }
                     }
