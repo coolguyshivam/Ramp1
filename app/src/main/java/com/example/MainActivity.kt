@@ -56,6 +56,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -152,6 +153,12 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
 
     // Headroom inspector horizontal position (feet from road)
     var inspectorX by remember(config.basementEntranceX, config.basementEndX) { mutableFloatStateOf(config.basementEntranceX) }
+
+    // Zoom and pan states for the interactive visual canvas
+    var zoomLevel by remember { mutableFloatStateOf(1.0f) }
+    var panOffsetFeetX by remember { mutableFloatStateOf(0.0f) }
+    var panOffsetFeetY by remember { mutableFloatStateOf(0.0f) }
+    var focusMode by remember { mutableStateOf("Full") } // "Full", "Car", "Crest", "Entrance", "Manual"
 
     // Run scraping simulation
     val simulationResult = remember(carPositionX, config, activeVehicle) {
@@ -442,7 +449,7 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             .height(240.dp)
                             .background(Color(0xFFF1F5F9), RoundedCornerShape(8.dp))
                             .border(1.dp, Color.LightGray, RoundedCornerShape(8.dp))
-                            .pointerInput(config, report, carPositionX, inspectorX) {
+                            .pointerInput(config, report, carPositionX, inspectorX, zoomLevel, panOffsetFeetX, panOffsetFeetY, focusMode) {
                                 detectTapGestures { offset ->
                                     val width = size.width.toFloat()
                                     val height = size.height.toFloat()
@@ -458,17 +465,33 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                     val paddingLeftRight = 40f
                                     val paddingTopBottom = 40f
 
+                                    val viewCenterX = width / 2f
+                                    val viewCenterY = height / 2f
+
                                     val scaleX = (width - 2f * paddingLeftRight) / totalXRange
                                     val scaleY = (height - 2f * paddingTopBottom) / totalYRange
-                                    val scale = minOf(scaleX, scaleY)
+                                    val baseScale = minOf(scaleX, scaleY)
+                                    val scale = baseScale * zoomLevel
 
-                                    val drawWidth = totalXRange * scale
-                                    val drawHeight = totalYRange * scale
-                                    val offsetX = paddingLeftRight + (width - 2f * paddingLeftRight - drawWidth) / 2f
-                                    val offsetY = paddingTopBottom + (height - 2f * paddingTopBottom - drawHeight) / 2f
+                                    val defaultCenterX = (xMin + xMax) / 2f
+                                    val defaultCenterY = (yMin + yMax) / 2f
+
+                                    val focusX = when (focusMode) {
+                                        "Car" -> carPositionX
+                                        "Crest" -> config.gutterWidth + config.upwardRampLength
+                                        "Entrance" -> config.basementEntranceX
+                                        else -> defaultCenterX + panOffsetFeetX
+                                    }
+                                    val focusY = when (focusMode) {
+                                        "Car" -> 1.2f
+                                        "Crest" -> report.crestHeight
+                                        "Entrance" -> config.basementTopLevel - 1.0f
+                                        else -> defaultCenterY + panOffsetFeetY
+                                    }
                                     
-                                    fun toCX(x: Float): Float = offsetX + (x - xMin) * scale
-                                    fun toCY(y: Float): Float = offsetY + (yMax - y) * scale
+                                    fun toCX(x: Float): Float = viewCenterX + (x - focusX) * scale
+                                    fun toCY(y: Float): Float = viewCenterY - (y - focusY) * scale
+                                    fun toFeetX(cx: Float): Float = focusX + (cx - viewCenterX) / scale
 
                                     // Let's check distance to other handles to avoid stealing clicks from handles
                                     val entranceCx = toCX(config.basementEntranceX)
@@ -490,12 +513,12 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
 
                                     // If not close to any handles, move the inspectorX
                                     if (distToEntrance >= 45f && distToBasementEnd >= 45f && distToCeiling >= 45f && distToCrest >= 45f) {
-                                        val tappedX = (xMin + (offset.x - offsetX) / scale).coerceIn(0.0f, maxScrollDist)
+                                        val tappedX = toFeetX(offset.x).coerceIn(0.0f, maxScrollDist)
                                         inspectorX = tappedX
                                     }
                                 }
                             }
-                            .pointerInput(config, report, carPositionX, inspectorX) {
+                            .pointerInput(config, report, carPositionX, inspectorX, zoomLevel, panOffsetFeetX, panOffsetFeetY, focusMode) {
                                 detectDragGestures(
                                     onDragStart = { offset ->
                                         val width = size.width.toFloat()
@@ -512,17 +535,33 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                         val paddingLeftRight = 40f
                                         val paddingTopBottom = 40f
 
+                                        val viewCenterX = width / 2f
+                                        val viewCenterY = height / 2f
+
                                         val scaleX = (width - 2f * paddingLeftRight) / totalXRange
                                         val scaleY = (height - 2f * paddingTopBottom) / totalYRange
-                                        val scale = minOf(scaleX, scaleY)
+                                        val baseScale = minOf(scaleX, scaleY)
+                                        val scale = baseScale * zoomLevel
 
-                                        val drawWidth = totalXRange * scale
-                                        val drawHeight = totalYRange * scale
-                                        val offsetX = paddingLeftRight + (width - 2f * paddingLeftRight - drawWidth) / 2f
-                                        val offsetY = paddingTopBottom + (height - 2f * paddingTopBottom - drawHeight) / 2f
+                                        val defaultCenterX = (xMin + xMax) / 2f
+                                        val defaultCenterY = (yMin + yMax) / 2f
+
+                                        val focusX = when (focusMode) {
+                                            "Car" -> carPositionX
+                                            "Crest" -> config.gutterWidth + config.upwardRampLength
+                                            "Entrance" -> config.basementEntranceX
+                                            else -> defaultCenterX + panOffsetFeetX
+                                        }
+                                        val focusY = when (focusMode) {
+                                            "Car" -> 1.2f
+                                            "Crest" -> report.crestHeight
+                                            "Entrance" -> config.basementTopLevel - 1.0f
+                                            else -> defaultCenterY + panOffsetFeetY
+                                        }
                                         
-                                        fun toCX(x: Float): Float = offsetX + (x - xMin) * scale
-                                        fun toCY(y: Float): Float = offsetY + (yMax - y) * scale
+                                        fun toCX(x: Float): Float = viewCenterX + (x - focusX) * scale
+                                        fun toCY(y: Float): Float = viewCenterY - (y - focusY) * scale
+                                        fun toFeetX(cx: Float): Float = focusX + (cx - viewCenterX) / scale
                                         
                                         // Handle distances
                                         // 1. Car Position
@@ -562,11 +601,13 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                             distToInspector < 45f -> "inspector"
                                             distToCrest < 45f -> "crest"
                                             distToCar < 80f -> "car"
-                                            else -> "inspector" // Tap-drag anywhere else defaults to point inspector!
+                                            else -> {
+                                                if (zoomLevel > 1.0f) "pan" else "inspector"
+                                            }
                                         }
 
                                         if (activeDragHandle == "inspector") {
-                                            val tappedX = (xMin + (offset.x - offsetX) / scale).coerceIn(0.0f, maxScrollDist)
+                                            val tappedX = toFeetX(offset.x).coerceIn(0.0f, maxScrollDist)
                                             inspectorX = tappedX
                                         }
                                     },
@@ -585,14 +626,23 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                         val paddingLeftRight = 40f
                                         val paddingTopBottom = 40f
 
+                                        val viewCenterX = width / 2f
+                                        val viewCenterY = height / 2f
+
                                         val scaleX = (width - 2f * paddingLeftRight) / totalXRange
                                         val scaleY = (height - 2f * paddingTopBottom) / totalYRange
-                                        val scale = minOf(scaleX, scaleY)
+                                        val baseScale = minOf(scaleX, scaleY)
+                                        val scale = baseScale * zoomLevel
                                         
                                         val dragXFt = dragAmount.x / scale
                                         val dragYFt = -dragAmount.y / scale // Invert vertical direction
                                         
                                         when (activeDragHandle) {
+                                            "pan" -> {
+                                                focusMode = "Manual"
+                                                panOffsetFeetX = (panOffsetFeetX - dragXFt).coerceIn(-30f, 30f)
+                                                panOffsetFeetY = (panOffsetFeetY - dragYFt).coerceIn(-15f, 15f)
+                                            }
                                             "car" -> {
                                                 carPositionX = (carPositionX + dragXFt).coerceIn(-6f, maxScrollDist)
                                             }
@@ -623,7 +673,7 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                 )
                             }
                     ) {
-                        Canvas(modifier = Modifier.fillMaxSize()) {
+                        Canvas(modifier = Modifier.fillMaxSize().clipToBounds()) {
                             val width = size.width
                             val height = size.height
 
@@ -639,18 +689,38 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             val paddingLeftRight = 40f
                             val paddingTopBottom = 40f
 
-                            // Exact aspect-ratio fitting
+                            // Center of the canvas area in pixels
+                            val viewCenterX = width / 2f
+                            val viewCenterY = height / 2f
+
+                            // 1. Base scale fitted to screen
                             val scaleX = (width - 2f * paddingLeftRight) / totalXRange
                             val scaleY = (height - 2f * paddingTopBottom) / totalYRange
-                            val scale = minOf(scaleX, scaleY)
+                            val baseScale = minOf(scaleX, scaleY)
+                            
+                            // 2. Active scale with zoom
+                            val scale = baseScale * zoomLevel
 
-                            val drawWidth = totalXRange * scale
-                            val drawHeight = totalYRange * scale
-                            val offsetX = paddingLeftRight + (width - 2f * paddingLeftRight - drawWidth) / 2f
-                            val offsetY = paddingTopBottom + (height - 2f * paddingTopBottom - drawHeight) / 2f
+                            // 3. Focal point centered in feet
+                            val defaultCenterX = (xMin + xMax) / 2f
+                            val defaultCenterY = (yMin + yMax) / 2f
 
-                            fun toCX(x: Float): Float = offsetX + (x - xMin) * scale
-                            fun toCY(y: Float): Float = offsetY + (yMax - y) * scale
+                            val focusX = when (focusMode) {
+                                "Car" -> carPositionX
+                                "Crest" -> config.gutterWidth + config.upwardRampLength
+                                "Entrance" -> config.basementEntranceX
+                                else -> defaultCenterX + panOffsetFeetX
+                            }
+                            val focusY = when (focusMode) {
+                                "Car" -> 1.2f
+                                "Crest" -> report.crestHeight
+                                "Entrance" -> config.basementTopLevel - 1.0f
+                                else -> defaultCenterY + panOffsetFeetY
+                            }
+
+                            // 4. Coordinates projection functions
+                            fun toCX(x: Float): Float = viewCenterX + (x - focusX) * scale
+                            fun toCY(y: Float): Float = viewCenterY - (y - focusY) * scale
 
                             // 1. DRAW WATER LEVEL / ROAD LEVEL COORDINATES
                             // Horizontal ground baseline
@@ -1290,6 +1360,133 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                     color = Color(0xFFEF4444),
                                     radius = 7f,
                                     center = Offset(rBX, rBY)
+                                )
+                            }
+                        }
+
+                        // --- INTERACTIVE CAM-ZOOM AND VIEWPORT CONTROLS OVERLAY ---
+                        // 1. Focus Mode Selection (Top Left)
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(8.dp)
+                                .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(24.dp))
+                                .border(1.dp, Color.LightGray.copy(alpha = 0.6f), RoundedCornerShape(24.dp))
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            listOf(
+                                "Full" to "🌐 Full",
+                                "Car" to "🚗 Car",
+                                "Crest" to "📐 Crest",
+                                "Entrance" to "🚪 Entry"
+                            ).forEach { (modeKey, modeLabel) ->
+                                val isSelected = focusMode == modeKey
+                                Box(
+                                    modifier = Modifier
+                                        .background(
+                                            if (isSelected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                            RoundedCornerShape(20.dp)
+                                        )
+                                        .clickable {
+                                            focusMode = modeKey
+                                            if (modeKey == "Full") {
+                                                zoomLevel = 1.0f
+                                                panOffsetFeetX = 0f
+                                                panOffsetFeetY = 0f
+                                            } else {
+                                                zoomLevel = 2.0f
+                                            }
+                                        }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = modeLabel,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            fontSize = 11.sp
+                                        ),
+                                        color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                            }
+                        }
+
+                        // 2. Zoom In / Out / Value Display Controls (Top Right)
+                        Row(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(8.dp)
+                                .background(Color.White.copy(alpha = 0.9f), RoundedCornerShape(24.dp))
+                                .border(1.dp, Color.LightGray.copy(alpha = 0.6f), RoundedCornerShape(24.dp))
+                                .padding(horizontal = 4.dp, vertical = 4.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Zoom Out Button
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(
+                                        if (zoomLevel > 1.0f) MaterialTheme.colorScheme.secondaryContainer else Color.LightGray.copy(alpha = 0.3f),
+                                        CircleShape
+                                    )
+                                    .clickable(enabled = zoomLevel > 1.0f) {
+                                        focusMode = "Manual"
+                                        zoomLevel = (zoomLevel - 0.25f).coerceIn(1.0f, 3.5f)
+                                        if (zoomLevel == 1.0f) {
+                                            focusMode = "Full"
+                                            panOffsetFeetX = 0f
+                                            panOffsetFeetY = 0f
+                                        }
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("−", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                            
+                            // Zoom Value
+                            Text(
+                                text = "${String.format("%.1f", zoomLevel)}x",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp),
+                                modifier = Modifier.padding(horizontal = 6.dp),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            
+                            // Zoom In Button
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .background(
+                                        if (zoomLevel < 3.5f) MaterialTheme.colorScheme.secondaryContainer else Color.LightGray.copy(alpha = 0.3f),
+                                        CircleShape
+                                    )
+                                    .clickable(enabled = zoomLevel < 3.5f) {
+                                        if (focusMode == "Full") {
+                                            focusMode = "Manual"
+                                        }
+                                        zoomLevel = (zoomLevel + 0.25f).coerceIn(1.0f, 3.5f)
+                                    },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("+", fontWeight = FontWeight.Bold, fontSize = 16.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                            }
+                        }
+
+                        // 3. Helpful interactive user tip (Bottom Center/Left)
+                        if (zoomLevel > 1.0f) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomStart)
+                                    .padding(8.dp)
+                                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = "↕️ Drag background to pan • Use circles to edit",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium)
                                 )
                             }
                         }
