@@ -78,7 +78,21 @@ data class VehicleProfile(
             overallHeight = 5.0f       // in feet
         )
 
-        val PRESETS = listOf(Hatchback, Sedan, SUV, Custom)
+        val ScooterWithRider = VehicleProfile(
+            name = "Scooter with Rider",
+            description = "E.g., Honda Activa, Vespa. Short wheelbase, high overhead clearance needed for the rider.",
+            wheelbase = 4.1f,          // 1250 mm
+            groundClearance = 5.7f,    // 145 mm
+            frontOverhang = 0.8f,      // short front
+            rearOverhang = 1.0f,       // short rear
+            frontBumperHeight = 10.0f, // 254 mm
+            rearBumperHeight = 10.0f,  // 254 mm
+            powerDescription = "Very Low Power (110cc - 150cc scooter automatic transmission)",
+            torqueClimbCapability = "Can climb up to 18-20% slope, CVT belt slipping risk if heavily loaded.",
+            overallHeight = 6.0f       // 6.0 feet tall including rider sitting on it
+        )
+
+        val PRESETS = listOf(Hatchback, Sedan, SUV, ScooterWithRider, Custom)
     }
 }
 
@@ -592,4 +606,132 @@ object RampCalculator {
             underbodyPoints = underbodyPoints
         )
     }
+
+    /**
+     * Generates a list of probable safe, scrape-free ramp configurations
+     * for a given clear height requirement across small cars, SUVs, and scooters.
+     */
+    fun generateSafeDesigns(config: RampConfig): List<SafeDesignOption> {
+        val vehicles = listOf(
+            VehicleProfile.Hatchback,
+            VehicleProfile.SUV,
+            VehicleProfile.ScooterWithRider
+        )
+        
+        val options = mutableListOf<SafeDesignOption>()
+        
+        // Let's test realistic combinations of parameters
+        val downwardSlopes = listOf(7f, 8f, 9f, 10f, 11f, 12f)
+        val upwardSlopes = listOf(5f, 6f)
+        
+        val crestX = config.gutterWidth + config.upwardRampLength
+        val minEntranceX = Math.ceil(crestX + 2.0).toFloat()
+        val entrancePositions = listOf(minEntranceX, minEntranceX + 3.0f, minEntranceX + 6.0f, minEntranceX + 9.0f, minEntranceX + 12.0f)
+        
+        var idCounter = 1
+        for (upSlopeDen in upwardSlopes) {
+            for (downSlopeDen in downwardSlopes) {
+                for (entranceX in entrancePositions) {
+                    val testConfig = config.copy(
+                        upwardSlopeRatioDenominator = upSlopeDen,
+                        downwardSlopeRatioDenominator = downSlopeDen,
+                        basementEntranceX = entranceX,
+                        basementEndX = maxOf(config.basementEndX, entranceX + 15f)
+                    )
+                    
+                    val report = generateReport(testConfig)
+                    val totalLength = report.totalHorizontalLength
+                    
+                    var allVehiclesSafe = true
+                    var minUnderbodyGC = 999f
+                    var minHeadroom = 999f
+                    
+                    val startX = -4.0f
+                    val endX = totalLength + 6.0f
+                    val step = 0.5f
+                    var x = startX
+                    while (x <= endX) {
+                        val floorY = getRampHeight(x, testConfig)
+                        if (x in testConfig.basementEntranceX..testConfig.basementEndX) {
+                            val headroom = testConfig.basementTopLevel - floorY
+                            if (headroom < testConfig.requiredClearHeight) {
+                                allVehiclesSafe = false
+                            }
+                            minHeadroom = minOf(minHeadroom, headroom)
+                        }
+                        
+                        for (vehicle in vehicles) {
+                            val sim = simulateVehicle(x, testConfig, vehicle)
+                            if (sim.underbodyScrapeAmount > 0f || sim.frontBumperScrape || sim.rearBumperScrape || sim.roofScrape) {
+                                allVehiclesSafe = false
+                            }
+                            val underbodyClearance = (vehicle.groundClearance - sim.underbodyScrapeAmount * 12f)
+                            minUnderbodyGC = minOf(minUnderbodyGC, underbodyClearance)
+                        }
+                        
+                        x += step
+                    }
+                    
+                    if (allVehiclesSafe) {
+                        val name: String
+                        val description: String
+                        
+                        when {
+                            downSlopeDen == 8.0f && upSlopeDen == 5.0f -> {
+                                name = "Standard Balanced Design"
+                                description = "Uses classic 1:5 flood barrier & 1:8 downward slope. Highly standard, optimized for minimal horizontal space."
+                            }
+                            downSlopeDen >= 10.0f -> {
+                                name = "Gentle Slope Comfort Profile"
+                                description = "An ultra-comfortable 1:${downSlopeDen.toInt()} downward run. Great for luxury low-clearance sedans and scooters."
+                            }
+                            entranceX > minEntranceX + 4.0f -> {
+                                name = "Extended Open Atrium Layout"
+                                description = "Pushes the roof slab entrance back to ${entranceX.toInt()} ft. Provides abundance of natural light and ventilation."
+                            }
+                            else -> {
+                                name = "Optimized Compact Profile"
+                                description = "A 1:${downSlopeDen.toInt()} downward slope with roof starting at ${entranceX.toInt()} ft. Perfectly matches smaller layouts."
+                            }
+                        }
+                        
+                        options.add(
+                            SafeDesignOption(
+                                id = "opt_${idCounter++}",
+                                name = name,
+                                description = description,
+                                upwardSlopeRatioDenominator = upSlopeDen,
+                                downwardSlopeRatioDenominator = downSlopeDen,
+                                basementEntranceX = entranceX,
+                                totalHorizontalLength = totalLength,
+                                maxCrestHeight = report.crestHeight,
+                                isRecommended = (downSlopeDen == 8.0f || downSlopeDen == 10.0f) && (upSlopeDen == 5.0f)
+                            )
+                        )
+                    }
+                }
+            }
+        }
+        
+        return options.sortedWith(
+            compareByDescending<SafeDesignOption> { it.isRecommended }
+                .thenByDescending { it.downwardSlopeRatioDenominator }
+                .thenBy { it.totalHorizontalLength }
+        ).take(4)
+    }
 }
+
+/**
+ * Data class representing a recommended safe configuration found by the optimizer.
+ */
+data class SafeDesignOption(
+    val id: String,
+    val name: String,
+    val description: String,
+    val upwardSlopeRatioDenominator: Float,
+    val downwardSlopeRatioDenominator: Float,
+    val basementEntranceX: Float,
+    val totalHorizontalLength: Float,
+    val maxCrestHeight: Float,
+    val isRecommended: Boolean
+)

@@ -825,22 +825,67 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
 
                             // Horizontal Setback text
                             if (setbackVal > 0.1f) {
+                                val setbackText = "Setback: ${String.format("%.1f", setbackVal)} ft"
+                                val setbackWidth = paint.measureText(setbackText)
+                                val setbackHeight = paint.textSize
+                                val setbackBoxWidth = setbackWidth + 14f
+                                val setbackBoxHeight = setbackHeight + 8f
+                                val setbackBoxLeft = ((crestCXCoord + ceilStartX) / 2f) - setbackBoxWidth / 2f
+                                val setbackBoxTop = setbackLineY - 6f - setbackBoxHeight / 2f - 4f
+                                
+                                drawRoundRect(
+                                    color = Color.White.copy(alpha = 0.95f),
+                                    topLeft = Offset(setbackBoxLeft, setbackBoxTop),
+                                    size = Size(setbackBoxWidth, setbackBoxHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f)
+                                )
+                                drawRoundRect(
+                                    color = Color(0xFF3B82F6),
+                                    topLeft = Offset(setbackBoxLeft, setbackBoxTop),
+                                    size = Size(setbackBoxWidth, setbackBoxHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f),
+                                    style = Stroke(width = 1f)
+                                )
+
                                 paint.color = Color(0xFF1D4ED8).toArgb() // Blue text
+                                paint.textAlign = Paint.Align.CENTER
                                 drawContext.canvas.nativeCanvas.drawText(
-                                    "Setback: ${String.format("%.1f", setbackVal)} ft",
+                                    setbackText,
                                     (crestCXCoord + ceilStartX) / 2f,
-                                    setbackLineY - 6f,
+                                    setbackBoxTop + setbackBoxHeight / 2f + setbackHeight / 2f - 1f,
                                     paint
                                 )
                             }
 
                             // Vertical Clearance text
+                            val clearanceText = "Clear: ${String.format("%.1f", entryClearance)} ft"
+                            val clearanceWidth = paint.measureText(clearanceText)
+                            val clearanceHeight = paint.textSize
+                            val clearanceBoxWidth = clearanceWidth + 14f
+                            val clearanceBoxHeight = clearanceHeight + 8f
+                            val clearanceBoxLeft = clearanceLineX + 8f
+                            val clearanceBoxTop = ((toCY(floorYAtEntrance) + ceilYBottom) / 2f) - clearanceBoxHeight / 2f
+                            
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = 0.95f),
+                                topLeft = Offset(clearanceBoxLeft, clearanceBoxTop),
+                                size = Size(clearanceBoxWidth, clearanceBoxHeight),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f)
+                            )
+                            drawRoundRect(
+                                color = Color(0xFF10B981),
+                                topLeft = Offset(clearanceBoxLeft, clearanceBoxTop),
+                                size = Size(clearanceBoxWidth, clearanceBoxHeight),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f),
+                                style = Stroke(width = 1f)
+                             )
+
                             paint.color = Color(0xFF047857).toArgb() // Emerald text
                             paint.textAlign = Paint.Align.LEFT
                             drawContext.canvas.nativeCanvas.drawText(
-                                "Clear: ${String.format("%.1f", entryClearance)} ft",
-                                clearanceLineX + 8f,
-                                (toCY(floorYAtEntrance) + ceilYBottom) / 2f + 3f,
+                                clearanceText,
+                                clearanceLineX + 15f,
+                                clearanceBoxTop + clearanceBoxHeight / 2f + clearanceHeight / 2f - 1f,
                                 paint
                             )
 
@@ -863,22 +908,66 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             )
 
                             // Road Label near 0,0
+                            val roadText = "Road Level"
+                            val roadTextWidth = paint.measureText(roadText)
+                            val roadTextHeight = paint.textSize
+                            val roadBoxWidth = roadTextWidth + 12f
+                            val roadBoxHeight = roadTextHeight + 6f
+                            val roadBoxLeft = toCX(xMin + 0.5f)
+                            val roadBoxTop = toCY(0f) - 6f - roadBoxHeight / 2f - 2f
+                            
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = 0.9f),
+                                topLeft = Offset(roadBoxLeft, roadBoxTop),
+                                size = Size(roadBoxWidth, roadBoxHeight),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f)
+                            )
+                            drawRoundRect(
+                                color = Color(0xFF64748B),
+                                topLeft = Offset(roadBoxLeft, roadBoxTop),
+                                size = Size(roadBoxWidth, roadBoxHeight),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(4f, 4f),
+                                style = Stroke(width = 1f)
+                            )
+
                             paint.color = Color(0xFF64748B).toArgb()
                             paint.textAlign = Paint.Align.LEFT
                             drawContext.canvas.nativeCanvas.drawText(
-                                "Road Level",
-                                toCX(xMin + 0.5f),
-                                toCY(0f) - 6f,
+                                roadText,
+                                roadBoxLeft + 6f,
+                                roadBoxTop + roadBoxHeight / 2f + roadTextHeight / 2f - 1f,
                                 paint
                             )
 
                             // Crest Label near peak
+                            val crestText = "Ramp Crest (+${String.format("%.2f", report.crestHeight)} ft)"
+                            val crestTextWidth = paint.measureText(crestText)
+                            val crestTextHeight = paint.textSize
+                            val crestBoxWidth = crestTextWidth + 14f
+                            val crestBoxHeight = crestTextHeight + 8f
+                            val crestBoxLeft = toCX(config.gutterWidth + config.upwardRampLength) - crestBoxWidth / 2f
+                            val crestBoxTop = toCY(report.crestHeight) - 15f - crestBoxHeight / 2f - 4f
+                            
+                            drawRoundRect(
+                                color = Color.White.copy(alpha = 0.95f),
+                                topLeft = Offset(crestBoxLeft, crestBoxTop),
+                                size = Size(crestBoxWidth, crestBoxHeight),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f)
+                            )
+                            drawRoundRect(
+                                color = Color(0xFFD97706),
+                                topLeft = Offset(crestBoxLeft, crestBoxTop),
+                                size = Size(crestBoxWidth, crestBoxHeight),
+                                cornerRadius = androidx.compose.ui.geometry.CornerRadius(6f, 6f),
+                                style = Stroke(width = 1f)
+                            )
+
                             paint.color = Color(0xFFD97706).toArgb()
                             paint.textAlign = Paint.Align.CENTER
                             drawContext.canvas.nativeCanvas.drawText(
-                                "Ramp Crest (+${String.format("%.2f", report.crestHeight)} ft)",
+                                crestText,
                                 toCX(config.gutterWidth + config.upwardRampLength),
-                                toCY(report.crestHeight) - 15f,
+                                crestBoxTop + crestBoxHeight / 2f + crestTextHeight / 2f - 1f,
                                 paint
                             )
 
@@ -903,13 +992,35 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                 drawCircle(color = inspLineColor, radius = 4f, center = Offset(inspCX, inspFloorCY))
                                 drawCircle(color = inspLineColor, radius = 4f, center = Offset(inspCX, ceilYBottom))
                                 
+                                val headroomText = "HR: ${String.format("%.2f", headroomVal)} ft"
+                                val hrTextWidth = paint.measureText(headroomText)
+                                val hrTextHeight = paint.textSize
+                                val hrBoxWidth = hrTextWidth + 20f
+                                val hrBoxHeight = hrTextHeight + 12f
+                                val hrBoxLeft = inspCX - hrBoxWidth / 2f
+                                val hrBoxTop = (inspFloorCY + ceilYBottom) / 2f - hrBoxHeight / 2f - 2f
+                                
+                                drawRoundRect(
+                                    color = Color.White,
+                                    topLeft = Offset(hrBoxLeft, hrBoxTop),
+                                    size = Size(hrBoxWidth, hrBoxHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f)
+                                )
+                                drawRoundRect(
+                                    color = inspLineColor,
+                                    topLeft = Offset(hrBoxLeft, hrBoxTop),
+                                    size = Size(hrBoxWidth, hrBoxHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f),
+                                    style = Stroke(width = 2f)
+                                )
+
                                 paint.color = inspLineColor.toArgb()
                                 paint.textAlign = Paint.Align.CENTER
                                 paint.typeface = Typeface.create(Typeface.DEFAULT_BOLD, Typeface.BOLD)
                                 drawContext.canvas.nativeCanvas.drawText(
-                                    "HR: ${String.format("%.1f", headroomVal)} ft",
+                                    headroomText,
                                     inspCX,
-                                    (inspFloorCY + ceilYBottom) / 2f - 4f,
+                                    hrBoxTop + hrBoxHeight / 2f + hrTextHeight / 2f - 2f,
                                     paint
                                 )
                             } else {
@@ -922,13 +1033,35 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                                 )
                                 drawCircle(color = Color.Gray.copy(alpha = 0.4f), radius = 3f, center = Offset(inspCX, inspFloorCY))
                                 
+                                val openAirText = "Open Air"
+                                val oaTextWidth = paint.measureText(openAirText)
+                                val oaTextHeight = paint.textSize
+                                val oaBoxWidth = oaTextWidth + 20f
+                                val oaBoxHeight = oaTextHeight + 12f
+                                val oaBoxLeft = inspCX - oaBoxWidth / 2f
+                                val oaBoxTop = inspFloorCY - 15f - oaBoxHeight / 2f - 5f
+                                
+                                drawRoundRect(
+                                    color = Color.White,
+                                    topLeft = Offset(oaBoxLeft, oaBoxTop),
+                                    size = Size(oaBoxWidth, oaBoxHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f)
+                                )
+                                drawRoundRect(
+                                    color = Color.Gray,
+                                    topLeft = Offset(oaBoxLeft, oaBoxTop),
+                                    size = Size(oaBoxWidth, oaBoxHeight),
+                                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(8f, 8f),
+                                    style = Stroke(width = 1.5f)
+                                )
+
                                 paint.color = Color.Gray.toArgb()
                                 paint.textAlign = Paint.Align.CENTER
                                 paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.ITALIC)
                                 drawContext.canvas.nativeCanvas.drawText(
-                                    "Open Air",
+                                    openAirText,
                                     inspCX,
-                                    inspFloorCY - 15f,
+                                    oaBoxTop + oaBoxHeight / 2f + oaTextHeight / 2f - 2f,
                                     paint
                                 )
                             }
@@ -1024,35 +1157,114 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                             drawLine(color = wheelColor, start = Offset(fWX, fWY - wheelRadiusPx), end = Offset(fBX, fBY), strokeWidth = 4f)
                             drawLine(color = wheelColor, start = Offset(rWX, rWY - wheelRadiusPx), end = Offset(rBX, rBY), strokeWidth = 4f)
 
-                            // Draw stylized car body cabin
-                            val carCabinPath = Path()
+                            // Draw stylized car body cabin or Scooter with Rider
                             val angleCos = cos(sim.chassisAngleRad)
                             val angleSin = sin(sim.chassisAngleRad)
                             
-                            val oh = activeVehicle.overallHeight
-                            val rearRoofX = toCX(sim.rearWheelX + 1.0f * angleCos)
-                            val rearRoofY = toCY(sim.rearWheelY + oh)
-                            val frontRoofX = toCX(sim.frontWheelX - 1.2f * angleCos)
-                            val frontRoofY = toCY(sim.frontWheelY + oh)
-                            
-                            carCabinPath.moveTo(rBX, rBY)
-                            carCabinPath.lineTo(rWX, rWY - wheelRadiusPx * 1.5f)
-                            carCabinPath.lineTo(rearRoofX, rearRoofY)
-                            carCabinPath.lineTo(frontRoofX, frontRoofY)
-                            carCabinPath.lineTo(fWX, fWY - wheelRadiusPx * 1.5f)
-                            carCabinPath.lineTo(fBX, fBY)
-                            carCabinPath.close()
+                            if (activeVehicle.name == "Scooter with Rider") {
+                                // Draw Scooter frame and Rider
+                                val scooterPath = Path()
+                                // Seat area coordinates
+                                val seatX = toCX(sim.rearWheelX + 0.5f * angleCos)
+                                val seatY = toCY(sim.rearWheelY + 2.0f) // seat height is around 2 feet
+                                
+                                // Floorboard area
+                                val floorX = toCX(sim.rearWheelX + 1.8f * angleCos)
+                                val floorY = toCY(sim.rearWheelY + 0.8f) // floorboard is low
+                                
+                                // Front column/handlebar height is around 3.2 feet
+                                val stemX = toCX(sim.frontWheelX - 0.2f * angleCos)
+                                val stemY = toCY(sim.frontWheelY + 3.2f)
+                                
+                                // Scooter body outline
+                                scooterPath.moveTo(rBX, rBY)
+                                scooterPath.lineTo(toCX(sim.rearWheelX), toCY(sim.rearWheelY + 1.6f))
+                                scooterPath.lineTo(seatX, seatY)
+                                scooterPath.lineTo(floorX, floorY)
+                                scooterPath.lineTo(toCX(sim.frontWheelX - 0.5f * angleCos), toCY(sim.frontWheelY + 0.8f))
+                                scooterPath.lineTo(stemX, stemY)
+                                scooterPath.lineTo(fBX, fBY)
+                                
+                                drawPath(
+                                    path = scooterPath,
+                                    color = if (hasAnyScrape) Color(0xFFFCA5A5).copy(alpha = 0.6f) 
+                                            else Color(0xFFE9D5FF).copy(alpha = 0.6f) // lavender/purple scooter
+                                )
+                                drawPath(
+                                    path = scooterPath,
+                                    color = if (hasAnyScrape) Color(0xFFEF4444) else Color(0xFF9333EA),
+                                    style = Stroke(width = 3.5f)
+                                )
+                                
+                                // Draw Rider stick figure sitting down
+                                val hipX = seatX
+                                val hipY = seatY - 5f // slightly down in pixels on the seat
+                                
+                                // Torso goes up to shoulder height (~4.3 feet)
+                                val shoulderX = toCX(sim.rearWheelX + 0.7f * angleCos)
+                                val shoulderY = toCY(sim.rearWheelY + 4.3f)
+                                
+                                // Head center is at activeVehicle.overallHeight (6.0 ft)
+                                val headX = toCX(sim.rearWheelX + 0.8f * angleCos)
+                                val headY = toCY(sim.rearWheelY + activeVehicle.overallHeight)
+                                
+                                // Draw Helmet/Head
+                                drawCircle(
+                                    color = if (hasAnyScrape) Color(0xFFEF4444) else Color(0xFF7E22CE),
+                                    radius = 12f,
+                                    center = Offset(headX, headY + 12f)
+                                )
+                                
+                                // Draw Torso (Thicker stroke)
+                                drawLine(
+                                    color = if (hasAnyScrape) Color(0xFFEF4444) else Color(0xFF9333EA),
+                                    start = Offset(hipX, hipY),
+                                    end = Offset(shoulderX, shoulderY),
+                                    strokeWidth = 6f
+                                )
+                                
+                                // Draw Arm holding handlebar
+                                drawLine(
+                                    color = if (hasAnyScrape) Color(0xFFEF4444) else Color(0xFF9333EA),
+                                    start = Offset(shoulderX, shoulderY),
+                                    end = Offset(stemX, stemY),
+                                    strokeWidth = 4f
+                                )
+                                
+                                // Draw Leg to floorboard
+                                drawLine(
+                                    color = if (hasAnyScrape) Color(0xFFEF4444) else Color(0xFF9333EA),
+                                    start = Offset(hipX, hipY),
+                                    end = Offset(floorX, floorY),
+                                    strokeWidth = 4f
+                                )
+                            } else {
+                                val carCabinPath = Path()
+                                val oh = activeVehicle.overallHeight
+                                val rearRoofX = toCX(sim.rearWheelX + 1.0f * angleCos)
+                                val rearRoofY = toCY(sim.rearWheelY + oh)
+                                val frontRoofX = toCX(sim.frontWheelX - 1.2f * angleCos)
+                                val frontRoofY = toCY(sim.frontWheelY + oh)
+                                
+                                carCabinPath.moveTo(rBX, rBY)
+                                carCabinPath.lineTo(rWX, rWY - wheelRadiusPx * 1.5f)
+                                carCabinPath.lineTo(rearRoofX, rearRoofY)
+                                carCabinPath.lineTo(frontRoofX, frontRoofY)
+                                carCabinPath.lineTo(fWX, fWY - wheelRadiusPx * 1.5f)
+                                carCabinPath.lineTo(fBX, fBY)
+                                carCabinPath.close()
 
-                            drawPath(
-                                path = carCabinPath,
-                                color = if (hasAnyScrape) Color(0xFFFCA5A5).copy(alpha = 0.6f) 
-                                        else Color(0xFF93C5FD).copy(alpha = 0.6f)
-                            )
-                            drawPath(
-                                path = carCabinPath,
-                                color = if (hasAnyScrape) Color(0xFFEF4444) else Color(0xFF2563EB),
-                                style = Stroke(width = 3f)
-                            )
+                                drawPath(
+                                    path = carCabinPath,
+                                    color = if (hasAnyScrape) Color(0xFFFCA5A5).copy(alpha = 0.6f) 
+                                            else Color(0xFF93C5FD).copy(alpha = 0.6f)
+                                )
+                                drawPath(
+                                    path = carCabinPath,
+                                    color = if (hasAnyScrape) Color(0xFFEF4444) else Color(0xFF2563EB),
+                                    style = Stroke(width = 3f)
+                                )
+                            }
 
                             // Highlight underbody points that are scraping
                             sim.underbodyPoints.forEach { pt ->
@@ -1368,6 +1580,162 @@ fun RampDesignerScreen(modifier: Modifier = Modifier) {
                         valueRange = 0.0f..maxScrollDist,
                         modifier = Modifier.fillMaxWidth().testTag("headroom_inspector_slider")
                     )
+                }
+            }
+        }
+
+        // --- PROBABLE RAMP DESIGNS FOR COMFORT & CLEARANCE ---
+        item {
+            val safeOptions = remember(config) { RampCalculator.generateSafeDesigns(config) }
+            Card(
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                shape = RoundedCornerShape(16.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "💡 Probable Safe Ramp Designs",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    if (safeOptions.isNotEmpty()) Color(0xFFE2F0D9) else Color(0xFFFEE2E2),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(horizontal = 8.dp, vertical = 4.dp)
+                        ) {
+                            Text(
+                                text = if (safeOptions.isNotEmpty()) "${safeOptions.size} Solutions Found" else "No perfect layouts",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = if (safeOptions.isNotEmpty()) Color(0xFF2E7D32) else Color(0xFFC62828)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = "Based on your current required clear height of ${String.format("%.1f", config.requiredClearHeight)} ft, these calculated geometries guarantee 100% safe clearance (0 scraping) for scooters (with rider), hatchbacks, and SUVs:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    if (safeOptions.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(Color(0xFFFEF2F2), RoundedCornerShape(12.dp))
+                                .border(1.dp, Color(0xFFFCA5A5), RoundedCornerShape(12.dp))
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                text = "⚠️ No completely safe alternative designs found for a ${String.format("%.1f", config.requiredClearHeight)} ft clear height inside a ${String.format("%.1f", config.basementTopLevel)} ft ceiling. Try slightly decreasing the Required Clear Height or increasing the Basement Ceiling Level to find auto-optimized profiles.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Color(0xFFC62828)
+                            )
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            safeOptions.forEach { opt ->
+                                val isCurrent = Math.abs(config.upwardSlopeRatioDenominator - opt.upwardSlopeRatioDenominator) < 0.05f &&
+                                                Math.abs(config.downwardSlopeRatioDenominator - opt.downwardSlopeRatioDenominator) < 0.05f &&
+                                                Math.abs(config.basementEntranceX - opt.basementEntranceX) < 0.05f
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(
+                                            if (isCurrent) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                            RoundedCornerShape(12.dp)
+                                        )
+                                        .border(
+                                            width = if (isCurrent) 2.dp else 1.dp,
+                                            color = if (isCurrent) MaterialTheme.colorScheme.primary else Color.LightGray.copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .clickable {
+                                            // Auto-apply this safe design!
+                                            config = config.copy(
+                                                upwardSlopeRatioDenominator = opt.upwardSlopeRatioDenominator,
+                                                downwardSlopeRatioDenominator = opt.downwardSlopeRatioDenominator,
+                                                basementEntranceX = opt.basementEntranceX,
+                                                basementEndX = maxOf(config.basementEndX, opt.basementEntranceX + 15f)
+                                            )
+                                        }
+                                        .padding(12.dp)
+                                ) {
+                                    Column {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Text(
+                                                text = opt.name,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                                color = if (isCurrent) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.weight(1f)
+                                            )
+                                            if (opt.isRecommended) {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .background(Color(0xFFE2F0D9), RoundedCornerShape(6.dp))
+                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                ) {
+                                                    Text(
+                                                        text = "RECOMMENDED",
+                                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold),
+                                                        color = Color(0xFF2E7D32)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = opt.description,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        
+                                        // Specific parameters
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            DesignParamBadge(label = "Upward Slope", value = "1:${opt.upwardSlopeRatioDenominator.toInt()}")
+                                            DesignParamBadge(label = "Downward Slope", value = "1:${opt.downwardSlopeRatioDenominator.toInt()}")
+                                            DesignParamBadge(label = "Roof Starts", value = "${opt.basementEntranceX.toInt()} ft")
+                                            DesignParamBadge(label = "Total Run", value = "${String.format("%.1f", opt.totalHorizontalLength)} ft")
+                                        }
+                                        
+                                        if (isCurrent) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "✨ Active Configuration Applied",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        } else {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "👉 Tap to Apply Design Pattern",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = MaterialTheme.colorScheme.secondary
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -2064,6 +2432,28 @@ fun VehicleSpecBadge(label: String, value: String) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         )
+    }
+}
+
+@Composable
+fun DesignParamBadge(label: String, value: String, modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
+            .padding(horizontal = 6.dp, vertical = 3.dp)
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp),
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+        }
     }
 }
 
